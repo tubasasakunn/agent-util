@@ -1,0 +1,1 @@
+{"id":"chatcmpl-82c6d960cc7d","object":"chat.completion","created":1776488585,"model":"gemma-4-E2B-it-Q4_K_M","choices":[{"index":0,"message":{"role":"assistant","content":"{\"name\": \"Tokyo Tower\", \"height_m\": 333, \"built_year\": 1958}","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":97,"completion_tokens":36,"total_tokens":133}}

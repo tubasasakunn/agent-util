@@ -1,0 +1,1 @@
+{"id":"chatcmpl-f0ba4be52b6d","object":"chat.completion","created":1776488885,"model":"gemma-4-E2B-it-Q4_K_M","choices":[{"index":0,"message":{"role":"assistant","content":"東京の天気は、気温25度、天気は曇り、湿度60%、風は南東 3m/sです。","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":253,"completion_tokens":30,"total_tokens":283}}

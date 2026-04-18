@@ -1,0 +1,1 @@
+{"id":"chatcmpl-65ba246c6aea","object":"chat.completion","created":1776488576,"model":"gemma-4-E2B-it-Q4_K_M","choices":[{"index":0,"message":{"role":"assistant","content":"1+1は2です。\n","tool_calls":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":152,"completion_tokens":15,"total_tokens":167}}
