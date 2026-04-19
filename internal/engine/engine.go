@@ -7,22 +7,16 @@ import (
 	"ai-agent/internal/llm"
 )
 
-// Completer はチャット補完を実行するインターフェース。
-// *llm.Client はこのインターフェースを暗黙的に満たす。
-type Completer interface {
-	ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error)
-}
-
 // Engine はエージェントループを管理する。
 type Engine struct {
-	completer    Completer
+	completer    llm.Completer
 	messages     []llm.Message
 	maxTurns     int
 	systemPrompt string
 }
 
 // New は Engine を生成する。
-func New(completer Completer, opts ...Option) *Engine {
+func New(completer llm.Completer, opts ...Option) *Engine {
 	cfg := defaultEngineConfig()
 	for _, opt := range opts {
 		opt(&cfg)

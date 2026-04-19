@@ -28,7 +28,13 @@ func (e *APIError) Error() string {
 
 func (e *APIError) Unwrap() error { return ErrAPIError }
 
-// Client はOpenAI互換APIのHTTPクライアント。
+// Completer はチャット補完を実行するインターフェース。
+// 異なるLLMバックエンドを差し替える場合はこのインターフェースを実装する。
+type Completer interface {
+	ChatCompletion(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
+}
+
+// Client はOpenAI互換APIのHTTPクライアント。Completer を満たす。
 type Client struct {
 	endpoint   string
 	model      string
