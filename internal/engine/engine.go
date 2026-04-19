@@ -18,6 +18,7 @@ type Engine struct {
 	systemPrompt string
 	registry     *Registry
 	logw         io.Writer
+	compaction   *agentctx.CompactionConfig
 }
 
 // New は Engine を生成する。
@@ -43,6 +44,7 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 		systemPrompt: cfg.systemPrompt,
 		registry:     reg,
 		logw:         cfg.logWriter,
+		compaction:   cfg.compaction,
 	}
 
 	// 閾値超過時のログ出力を登録
@@ -113,10 +115,34 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 // step は1ターンのモデル呼び出しを実行し、LoopResult を返す。
 // ツールが登録されている場合はルーターステップを経由する。
 func (e *Engine) step(ctx context.Context) (*LoopResult, error) {
+	if err := e.maybeCompact(ctx); err != nil {
+		return nil, fmt.Errorf("compaction: %w", err)
+	}
+
 	if e.registry.Len() == 0 {
 		return e.chatStep(ctx)
 	}
 	return e.toolStep(ctx)
+}
+
+// maybeCompact は閾値超過時に縮約カスケードを実行する。
+func (e *Engine) maybeCompact(ctx context.Context) error {
+	if e.compaction == nil {
+		return nil
+	}
+	if e.ctxManager.UsageRatio() < e.ctxManager.Threshold() {
+		return nil
+	}
+
+	e.logf("[context] compaction triggered at %.0f%%", e.ctxManager.UsageRatio()*100)
+	before := e.ctxManager.TokenCount()
+	if err := e.ctxManager.Compact(ctx, *e.compaction); err != nil {
+		return err
+	}
+	after := e.ctxManager.TokenCount()
+	e.logf("[context] compaction complete: %d → %d tokens (%.0f%%)",
+		before, after, e.ctxManager.UsageRatio()*100)
+	return nil
 }
 
 // chatStep は通常のチャット補完（Phase 2互換）。

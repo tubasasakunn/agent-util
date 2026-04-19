@@ -1,6 +1,8 @@
 package context
 
 import (
+	stdctx "context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -223,5 +225,132 @@ func TestManager_DefaultThreshold(t *testing.T) {
 	mgr.SetReserved(80) // 80% → 発火
 	if len(events) != 1 {
 		t.Errorf("events count = %d, want 1 at 80%%", len(events))
+	}
+}
+
+// --- Compact ---
+
+func TestManager_Threshold(t *testing.T) {
+	mgr := NewManager(100, WithThreshold(0.9))
+	if mgr.Threshold() != 0.9 {
+		t.Errorf("Threshold() = %f, want 0.9", mgr.Threshold())
+	}
+}
+
+func TestManagerCompact_BelowThreshold(t *testing.T) {
+	mgr := NewManager(10000) // 大きな上限 → 使用率が低い
+	mgr.Add(llm.Message{Role: "user", Content: llm.StringPtr("hello")})
+
+	before := mgr.TokenCount()
+	err := mgr.Compact(stdctx.Background(), DefaultCompactionConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mgr.TokenCount() != before {
+		t.Error("compact should not change tokens when below threshold")
+	}
+}
+
+func TestManagerCompact_ReducesTokenCount(t *testing.T) {
+	mgr := NewManager(200, WithThreshold(0.5))
+	// 閾値を超えるようにメッセージを追加
+	for i := 0; i < 10; i++ {
+		mgr.Add(llm.Message{Role: "user", Content: llm.StringPtr(strings.Repeat("x", 100))})
+		mgr.Add(llm.Message{Role: "assistant", Content: llm.StringPtr(strings.Repeat("y", 100))})
+	}
+
+	before := mgr.TokenCount()
+	cfg := CompactionConfig{
+		BudgetMaxChars: 2000,
+		KeepLast:       4,
+		TargetRatio:    0.3,
+	}
+	err := mgr.Compact(stdctx.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	after := mgr.TokenCount()
+	if after >= before {
+		t.Errorf("tokens not reduced: %d >= %d", after, before)
+	}
+}
+
+func TestManagerCompact_ThresholdRecoveryEvent(t *testing.T) {
+	mgr := NewManager(200, WithThreshold(0.5))
+
+	var events []Event
+	mgr.OnThreshold(func(e Event) {
+		events = append(events, e)
+	})
+
+	// 閾値を超える
+	for i := 0; i < 10; i++ {
+		mgr.Add(llm.Message{Role: "user", Content: llm.StringPtr(strings.Repeat("x", 100))})
+	}
+	// ThresholdExceeded が発火しているはず
+	exceeded := false
+	for _, e := range events {
+		if e.Kind == ThresholdExceeded {
+			exceeded = true
+		}
+	}
+	if !exceeded {
+		t.Fatal("ThresholdExceeded not fired")
+	}
+
+	// 縮約実行
+	cfg := CompactionConfig{
+		BudgetMaxChars: 2000,
+		KeepLast:       2,
+		TargetRatio:    0.1,
+	}
+	err := mgr.Compact(stdctx.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ThresholdRecovered が発火しているはず
+	recovered := false
+	for _, e := range events {
+		if e.Kind == ThresholdRecovered {
+			recovered = true
+		}
+	}
+	if !recovered {
+		t.Error("ThresholdRecovered not fired after compaction")
+	}
+}
+
+func TestManagerCompact_MessagesConsistency(t *testing.T) {
+	mgr := NewManager(200, WithThreshold(0.5))
+	for i := 0; i < 10; i++ {
+		mgr.Add(llm.Message{Role: "user", Content: llm.StringPtr(strings.Repeat("x", 50))})
+		mgr.Add(llm.Message{Role: "assistant", Content: llm.StringPtr(strings.Repeat("y", 50))})
+	}
+
+	cfg := CompactionConfig{
+		BudgetMaxChars: 2000,
+		KeepLast:       4,
+		TargetRatio:    0.3,
+	}
+	err := mgr.Compact(stdctx.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msgs := mgr.Messages()
+	if len(msgs) == 0 {
+		t.Fatal("Messages() returned empty after compaction")
+	}
+
+	// トークン数とメッセージ数の整合性
+	tokenSum := 0
+	for _, m := range msgs {
+		tokenSum += EstimateTokens(m)
+	}
+	// Managerの内部トークン数と推定値の合計が一致するはず
+	if mgr.TokenCount() != tokenSum {
+		t.Errorf("token mismatch: manager=%d, calculated=%d", mgr.TokenCount(), tokenSum)
 	}
 }

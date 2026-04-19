@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	agentctx "ai-agent/internal/context"
 	"ai-agent/internal/llm"
 	"ai-agent/pkg/tool"
 )
@@ -419,5 +420,107 @@ func TestToolStep_MessageHistory(t *testing.T) {
 	// tool_call ID の対応
 	if eng.ctxManager.Messages()[2].ToolCallID != eng.ctxManager.Messages()[1].ToolCalls[0].ID {
 		t.Errorf("tool_call_id mismatch: %q != %q", eng.ctxManager.Messages()[2].ToolCallID, eng.ctxManager.Messages()[1].ToolCalls[0].ID)
+	}
+}
+
+func TestRun_CompactionDisabled(t *testing.T) {
+	// compaction=nil（デフォルト）→ 縮約なし、既存動作と完全互換
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			makeResponse("response", llm.Usage{}),
+		},
+	}
+	eng := New(mock) // WithCompaction なし
+
+	result, err := eng.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "response" {
+		t.Errorf("response = %q, want %q", result.Response, "response")
+	}
+}
+
+func TestRun_CompactionTriggered(t *testing.T) {
+	// 小さなtokenLimitで閾値を超えさせ、縮約が実行されることを確認
+	callCount := 0
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			// Turn 1: echo tool
+			chatResponse(`{"tool":"echo","arguments":{"message":"hello"},"reasoning":"test"}`),
+			// Turn 2: none → chat response
+			chatResponse(`{"tool":"none","arguments":{},"reasoning":"done"}`),
+			makeResponse("final answer", llm.Usage{}),
+		},
+	}
+
+	echoTool := &mockTool{
+		name:        "echo",
+		description: "Echo a message",
+		parameters:  json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}}}`),
+		executeFunc: func(_ context.Context, args json.RawMessage) (tool.Result, error) {
+			callCount++
+			return tool.Result{Content: "echoed"}, nil
+		},
+	}
+
+	cfg := agentctx.DefaultCompactionConfig()
+	eng := New(mock,
+		WithTools(echoTool),
+		WithTokenLimit(100),     // 非常に小さなコンテキスト
+		WithCompaction(cfg),
+	)
+
+	result, err := eng.Run(context.Background(), "echo hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "final answer" {
+		t.Errorf("response = %q, want %q", result.Response, "final answer")
+	}
+
+	// 縮約が実行されてもループが正常に完了する
+	if callCount != 1 {
+		t.Errorf("echo tool called %d times, want 1", callCount)
+	}
+}
+
+func TestRun_CompactionReducesContext(t *testing.T) {
+	// 縮約後にトークン数が減少していることを確認
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			makeResponse("response", llm.Usage{}),
+		},
+	}
+
+	cfg := agentctx.CompactionConfig{
+		BudgetMaxChars: 100,
+		KeepLast:       2,
+		TargetRatio:    0.3,
+	}
+	eng := New(mock,
+		WithTokenLimit(200),
+		WithCompaction(cfg),
+	)
+
+	// 事前にメッセージを大量に追加して閾値を超えさせる
+	for i := 0; i < 10; i++ {
+		eng.ctxManager.Add(llm.Message{Role: "user", Content: llm.StringPtr(fmt.Sprintf("message %d with some content", i))})
+		eng.ctxManager.Add(llm.Message{Role: "assistant", Content: llm.StringPtr(fmt.Sprintf("response %d with some content", i))})
+	}
+	beforeTokens := eng.ctxManager.TokenCount()
+
+	result, err := eng.Run(context.Background(), "final question")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "response" {
+		t.Errorf("response = %q, want %q", result.Response, "response")
+	}
+
+	// 縮約後のトークン数が減少していること
+	afterTokens := eng.ctxManager.TokenCount()
+	if afterTokens >= beforeTokens {
+		t.Errorf("tokens not reduced: %d >= %d", afterTokens, beforeTokens)
 	}
 }

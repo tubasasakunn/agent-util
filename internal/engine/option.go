@@ -3,6 +3,7 @@ package engine
 import (
 	"io"
 
+	agentctx "ai-agent/internal/context"
 	"ai-agent/pkg/tool"
 )
 
@@ -15,6 +16,7 @@ type engineConfig struct {
 	tools        []tool.Tool
 	logWriter    io.Writer
 	tokenLimit   int
+	compaction   *agentctx.CompactionConfig
 }
 
 const defaultSystemPrompt = "You are a helpful assistant."
@@ -57,4 +59,12 @@ func WithLogWriter(w io.Writer) Option {
 // デフォルトは 8192。
 func WithTokenLimit(n int) Option {
 	return func(c *engineConfig) { c.tokenLimit = n }
+}
+
+// WithCompaction は縮約カスケードの設定を有効にする。
+// この設定がない場合、閾値超過時もログ出力のみで縮約は実行しない。
+func WithCompaction(cfg agentctx.CompactionConfig) Option {
+	return func(c *engineConfig) {
+		c.compaction = &cfg
+	}
 }

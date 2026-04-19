@@ -1,6 +1,8 @@
 package context
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
 	"ai-agent/internal/llm"
@@ -104,6 +106,42 @@ func (m *Manager) OnThreshold(obs Observer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.observers = append(m.observers, obs)
+}
+
+// Threshold は現在の閾値を返す。
+func (m *Manager) Threshold() float64 {
+	return m.threshold
+}
+
+// Compact は縮約カスケードを実行する。
+// 使用率が閾値未満の場合は何もしない。
+// 縮約は副作用を伴う操作なので、呼び出し側が明示的にトリガーする。
+func (m *Manager) Compact(ctx context.Context, cfg CompactionConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ratio := float64(m.reservedTokens+m.tokenCount) / float64(m.tokenLimit)
+	if ratio < m.threshold {
+		return nil
+	}
+
+	newEntries, err := runCompaction(ctx, m.entries, m.reservedTokens, m.tokenLimit, cfg)
+	if err != nil {
+		return fmt.Errorf("compact: %w", err)
+	}
+	m.replaceEntries(newEntries)
+	return nil
+}
+
+// replaceEntries はエントリリストを置換し、トークン数を再計算する。
+// mu.Lock() を取得した状態で呼び出すこと。
+func (m *Manager) replaceEntries(newEntries []entry) {
+	m.entries = newEntries
+	m.tokenCount = 0
+	for _, e := range m.entries {
+		m.tokenCount += e.Tokens
+	}
+	m.checkThreshold()
 }
 
 // checkThreshold は使用率を確認し、閾値を超過/回復した場合にイベントを発火する。
