@@ -42,6 +42,30 @@ func TestFixJSON(t *testing.T) {
 
 		// 複合パターン
 		{name: "combined_null_and_trailing", input: `{"a": {null},}`, want: `{"a": null}`},
+
+		// Markdownコードブロック（SLMがJSON modeで```json...```で囲むパターン）
+		{
+			name:  "code_block_json",
+			input: "```json\n{\"tool\": \"none\", \"arguments\": {}}\n```",
+			want:  `{"tool": "none", "arguments": {}}`,
+		},
+		{
+			name:  "code_block_no_lang",
+			input: "```\n{\"tool\": \"read_file\"}\n```",
+			want:  `{"tool": "read_file"}`,
+		},
+
+		// 連結JSONオブジェクト（SLMがJSON modeで分割出力するパターン）
+		{
+			name:  "concatenated_objects",
+			input: "{\"tool\": \"echo\", \"arguments\": {\"message\": \"hello\"}}\n{\"reasoning\": \"user wants echo\"}",
+			want:  `{"arguments":{"message":"hello"},"reasoning":"user wants echo","tool":"echo"}`,
+		},
+		{
+			name:  "single_valid_object",
+			input: `{"tool": "echo", "arguments": {"message": "hello"}, "reasoning": "test"}`,
+			want:  `{"tool": "echo", "arguments": {"message": "hello"}, "reasoning": "test"}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

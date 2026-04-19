@@ -24,5 +24,6 @@ pkg/tool/        — Tool interface、スキーマ定義
 
 - ADR-001: 通信方式にJSON-RPC over stdioを採用
 - ADR-002: SLLMのツール呼び出しにルーター（JSON mode）+ 単一ツール パターンを採用
+- ADR-003: ルーター引数の直接使用（サブエージェントステップの省略）
 
 詳細は `/decision list` で確認。

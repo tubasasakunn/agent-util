@@ -1,11 +1,19 @@
 package engine
 
+import (
+	"io"
+
+	"ai-agent/pkg/tool"
+)
+
 // Option は Engine の設定を変更する関数。
 type Option func(*engineConfig)
 
 type engineConfig struct {
 	maxTurns     int
 	systemPrompt string
+	tools        []tool.Tool
+	logWriter    io.Writer
 }
 
 const defaultSystemPrompt = "You are a helpful assistant."
@@ -26,4 +34,19 @@ func WithMaxTurns(n int) Option {
 // 空文字を指定するとシステムプロンプトを省略する。
 func WithSystemPrompt(prompt string) Option {
 	return func(c *engineConfig) { c.systemPrompt = prompt }
+}
+
+// WithTools は利用可能なツールを設定する。
+// ツールが登録されるとルーターステップが有効になる。
+func WithTools(tools ...tool.Tool) Option {
+	return func(c *engineConfig) {
+		c.tools = append(c.tools, tools...)
+	}
+}
+
+// WithLogWriter はログ出力先を設定する。
+// 設定するとルーター選択、ツール実行、応答生成の過程がログ出力される。
+// 通常は os.Stderr を渡す。nil の場合はログを出力しない。
+func WithLogWriter(w io.Writer) Option {
+	return func(c *engineConfig) { c.logWriter = w }
 }

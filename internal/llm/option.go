@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"io"
 	"net/http"
 	"time"
 )
@@ -15,6 +16,7 @@ type config struct {
 	httpClient  *http.Client
 	maxRetries  int
 	httpTimeout time.Duration
+	logWriter   io.Writer
 }
 
 func defaultConfig() config {
@@ -54,4 +56,10 @@ func WithMaxRetries(n int) Option {
 // WithHTTPTimeout はHTTPリクエストのタイムアウトを設定する。
 func WithHTTPTimeout(d time.Duration) Option {
 	return func(c *config) { c.httpTimeout = d }
+}
+
+// WithLogWriter はログ出力先を設定する。
+// 設定するとリクエスト・レスポンスの概要がログ出力される。
+func WithLogWriter(w io.Writer) Option {
+	return func(c *config) { c.logWriter = w }
 }

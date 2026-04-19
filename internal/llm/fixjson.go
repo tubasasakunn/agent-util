@@ -2,6 +2,7 @@ package llm
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 )
 
@@ -9,12 +10,36 @@ import (
 // 補正後もパース不能な場合は入力をそのまま返す。
 func FixJSON(data []byte) []byte {
 	result := data
+	result = stripCodeBlock(result)
 	result = fixNullBraces(result)
 	result = fixControlChars(result)
 	result = fixSingleQuotes(result)
 	result = fixTrailingCommas(result)
 	result = fixUnmatchedBrackets(result)
+	result = mergeJSONObjects(result)
 	return result
+}
+
+// stripCodeBlock はMarkdownコードブロック (```json ... ```) を除去する。
+// SLMがJSON mode出力をコードブロックで囲むパターンに対応する。
+// コードブロック後に余分なテキストがあっても、ブロック内のみを抽出する。
+func stripCodeBlock(data []byte) []byte {
+	trimmed := bytes.TrimSpace(data)
+	if !bytes.HasPrefix(trimmed, []byte("```")) {
+		return data
+	}
+	// 先頭の ```json または ``` 行を除去
+	firstNL := bytes.IndexByte(trimmed, '\n')
+	if firstNL < 0 {
+		return data
+	}
+	inner := trimmed[firstNL+1:]
+	// 最初の ``` 閉じマーカーを探す（後続テキストは無視）
+	closeIdx := bytes.Index(inner, []byte("```"))
+	if closeIdx >= 0 {
+		inner = inner[:closeIdx]
+	}
+	return bytes.TrimSpace(inner)
 }
 
 // fixNullBraces は {null} を null に変換する。
@@ -125,6 +150,50 @@ func fixTrailingCommas(data []byte) []byte {
 		buf.WriteByte(c)
 	}
 	return []byte(buf.String())
+}
+
+// mergeJSONObjects はSLMが出力した連結JSONオブジェクトを1つにマージする。
+// 例: {"tool":"echo"}\n{"reasoning":"..."} → {"tool":"echo","reasoning":"..."}
+// 単一の有効なJSONオブジェクトの場合はそのまま返す。
+func mergeJSONObjects(data []byte) []byte {
+	// まず単一のJSONとして有効か確認
+	trimmed := bytes.TrimSpace(data)
+	if json.Valid(trimmed) {
+		return data
+	}
+
+	// 改行で分割して各行をJSONオブジェクトとしてパースを試みる
+	lines := bytes.Split(trimmed, []byte("\n"))
+	if len(lines) < 2 {
+		return data
+	}
+
+	merged := make(map[string]json.RawMessage)
+	anyParsed := false
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(line, &obj); err != nil {
+			continue
+		}
+		anyParsed = true
+		for k, v := range obj {
+			merged[k] = v
+		}
+	}
+
+	if !anyParsed || len(merged) == 0 {
+		return data
+	}
+
+	result, err := json.Marshal(merged)
+	if err != nil {
+		return data
+	}
+	return result
 }
 
 // fixUnmatchedBrackets は閉じ括弧が不足している場合に補完する。

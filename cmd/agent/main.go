@@ -13,6 +13,7 @@ import (
 
 	"ai-agent/internal/engine"
 	"ai-agent/internal/llm"
+	"ai-agent/internal/tools/readfile"
 )
 
 func main() {
@@ -26,8 +27,15 @@ func main() {
 		llm.WithEndpoint(envCfg.endpoint),
 		llm.WithModel(envCfg.model),
 		llm.WithAPIKey(envCfg.apiKey),
+		llm.WithLogWriter(os.Stderr),
 	)
-	eng := engine.New(client, engine.WithMaxTurns(cfg.maxTurns))
+	eng := engine.New(client,
+		engine.WithMaxTurns(cfg.maxTurns),
+		engine.WithTools(
+			readfile.New(),
+		),
+		engine.WithLogWriter(os.Stderr),
+	)
 
 	// 引数ありならワンショットモード
 	if cfg.prompt != "" {
