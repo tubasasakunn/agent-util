@@ -43,6 +43,15 @@ func (r *Registry) Len() int {
 	return len(r.tools)
 }
 
+// Tools は登録された全ツールを登録順で返す。
+func (r *Registry) Tools() []tool.Tool {
+	tools := make([]tool.Tool, 0, len(r.order))
+	for _, name := range r.order {
+		tools = append(tools, r.tools[name])
+	}
+	return tools
+}
+
 // Definitions は全ツールの Definition を登録順で返す。
 func (r *Registry) Definitions() []tool.Definition {
 	defs := make([]tool.Definition, 0, len(r.order))

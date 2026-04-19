@@ -12,13 +12,15 @@ import (
 
 // Engine はエージェントループを管理する。
 type Engine struct {
-	completer    llm.Completer
-	ctxManager   *agentctx.Manager
-	maxTurns     int
-	systemPrompt string
-	registry     *Registry
-	logw         io.Writer
-	compaction   *agentctx.CompactionConfig
+	completer        llm.Completer
+	ctxManager       *agentctx.Manager
+	maxTurns         int
+	systemPrompt     string
+	registry         *Registry
+	logw             io.Writer
+	compaction       *agentctx.CompactionConfig
+	delegateEnabled  bool
+	delegateMaxChars int
 }
 
 // New は Engine を生成する。
@@ -38,13 +40,15 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 	ctxMgr := agentctx.NewManager(cfg.tokenLimit)
 
 	eng := &Engine{
-		completer:    completer,
-		ctxManager:   ctxMgr,
-		maxTurns:     cfg.maxTurns,
-		systemPrompt: cfg.systemPrompt,
-		registry:     reg,
-		logw:         cfg.logWriter,
-		compaction:   cfg.compaction,
+		completer:        completer,
+		ctxManager:       ctxMgr,
+		maxTurns:         cfg.maxTurns,
+		systemPrompt:     cfg.systemPrompt,
+		registry:         reg,
+		logw:             cfg.logWriter,
+		compaction:       cfg.compaction,
+		delegateEnabled:  cfg.delegateEnabled,
+		delegateMaxChars: cfg.delegateMaxChars,
 	}
 
 	// 閾値超過時のログ出力を登録
@@ -63,6 +67,45 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 	eng.updateReservedTokens()
 
 	return eng
+}
+
+// Fork は同じ Completer とツールセットを共有する子 Engine を生成する。
+// コンテキストはクリーンな状態で開始する。
+// opts で systemPrompt, maxTurns 等を上書き可能。
+// delegate_task は無効化されネスト再帰を防止する。
+func (e *Engine) Fork(opts ...Option) *Engine {
+	// 親の設定をベースに子Engineの設定を構築
+	cfg := engineConfig{
+		maxTurns:         e.maxTurns,
+		systemPrompt:     e.systemPrompt,
+		tools:            e.registry.Tools(),
+		logWriter:        e.logw,
+		tokenLimit:       e.ctxManager.TokenLimit(),
+		compaction:       e.compaction,
+		delegateEnabled:  false, // ネスト再帰防止
+		delegateMaxChars: e.delegateMaxChars,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	return New(e.completer,
+		WithMaxTurns(cfg.maxTurns),
+		WithSystemPrompt(cfg.systemPrompt),
+		WithTools(cfg.tools...),
+		WithLogWriter(cfg.logWriter),
+		WithTokenLimit(cfg.tokenLimit),
+		WithDelegateEnabled(cfg.delegateEnabled),
+		WithDelegateMaxChars(cfg.delegateMaxChars),
+		withOptionalCompaction(cfg.compaction),
+	)
+}
+
+// withOptionalCompaction は compaction が非nil の場合のみ WithCompaction を適用する。
+func withOptionalCompaction(cfg *agentctx.CompactionConfig) Option {
+	return func(c *engineConfig) {
+		c.compaction = cfg
+	}
 }
 
 // logf はログメッセージを出力する。logw が nil の場合は何もしない。
@@ -193,6 +236,11 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 		lr.Usage.CompletionTokens += usage.CompletionTokens
 		lr.Usage.TotalTokens += usage.TotalTokens
 		return lr, nil
+	}
+
+	// delegate_task の検出（バーチャルツール、ADR-006）
+	if rr.Tool == "delegate_task" && e.delegateEnabled {
+		return e.delegateStep(ctx, rr, usage)
 	}
 
 	e.logf("[router] %s を選択 | 引数: %s", rr.Tool, string(rr.Arguments))

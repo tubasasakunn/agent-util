@@ -144,6 +144,13 @@ func (m *Manager) replaceEntries(newEntries []entry) {
 	m.checkThreshold()
 }
 
+// Fork は新しい独立した Manager を生成する。
+// 親の tokenLimit と threshold を継承するが、メッセージ履歴は含めない。
+// サブエージェント用のクリーンなコンテキストとして使用する。
+func (m *Manager) Fork() *Manager {
+	return NewManager(m.tokenLimit, WithThreshold(m.threshold))
+}
+
 // checkThreshold は使用率を確認し、閾値を超過/回復した場合にイベントを発火する。
 // mu.Lock() を取得した状態で呼び出すこと。
 func (m *Manager) checkThreshold() {

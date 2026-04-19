@@ -11,21 +11,25 @@ import (
 type Option func(*engineConfig)
 
 type engineConfig struct {
-	maxTurns     int
-	systemPrompt string
-	tools        []tool.Tool
-	logWriter    io.Writer
-	tokenLimit   int
-	compaction   *agentctx.CompactionConfig
+	maxTurns         int
+	systemPrompt     string
+	tools            []tool.Tool
+	logWriter        io.Writer
+	tokenLimit       int
+	compaction       *agentctx.CompactionConfig
+	delegateEnabled  bool
+	delegateMaxChars int
 }
 
 const defaultSystemPrompt = "You are a helpful assistant."
 
 func defaultEngineConfig() engineConfig {
 	return engineConfig{
-		maxTurns:     10,
-		systemPrompt: defaultSystemPrompt,
-		tokenLimit:   8192,
+		maxTurns:         10,
+		systemPrompt:     defaultSystemPrompt,
+		tokenLimit:       8192,
+		delegateEnabled:  true,
+		delegateMaxChars: 1500,
 	}
 }
 
@@ -67,4 +71,16 @@ func WithCompaction(cfg agentctx.CompactionConfig) Option {
 	return func(c *engineConfig) {
 		c.compaction = &cfg
 	}
+}
+
+// WithDelegateEnabled は delegate_task（サブエージェント委譲）の有効/無効を設定する。
+// デフォルトは true。Fork() で生成した子Engine では false に設定してネスト再帰を防止する。
+func WithDelegateEnabled(enabled bool) Option {
+	return func(c *engineConfig) { c.delegateEnabled = enabled }
+}
+
+// WithDelegateMaxChars はサブエージェント結果の凝縮時の最大文字数を設定する。
+// デフォルトは 1500。
+func WithDelegateMaxChars(n int) Option {
+	return func(c *engineConfig) { c.delegateMaxChars = n }
 }
