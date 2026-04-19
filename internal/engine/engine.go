@@ -6,13 +6,14 @@ import (
 	"io"
 	"strings"
 
+	agentctx "ai-agent/internal/context"
 	"ai-agent/internal/llm"
 )
 
 // Engine はエージェントループを管理する。
 type Engine struct {
 	completer    llm.Completer
-	messages     []llm.Message
+	ctxManager   *agentctx.Manager
 	maxTurns     int
 	systemPrompt string
 	registry     *Registry
@@ -33,13 +34,33 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 		}
 	}
 
-	return &Engine{
+	ctxMgr := agentctx.NewManager(cfg.tokenLimit)
+
+	eng := &Engine{
 		completer:    completer,
+		ctxManager:   ctxMgr,
 		maxTurns:     cfg.maxTurns,
 		systemPrompt: cfg.systemPrompt,
 		registry:     reg,
 		logw:         cfg.logWriter,
 	}
+
+	// 閾値超過時のログ出力を登録
+	ctxMgr.OnThreshold(func(evt agentctx.Event) {
+		switch evt.Kind {
+		case agentctx.ThresholdExceeded:
+			eng.logf("[context] threshold exceeded: %.0f%% (%d/%d tokens)",
+				evt.UsageRatio*100, evt.TokenCount, evt.TokenLimit)
+		case agentctx.ThresholdRecovered:
+			eng.logf("[context] threshold recovered: %.0f%% (%d/%d tokens)",
+				evt.UsageRatio*100, evt.TokenCount, evt.TokenLimit)
+		}
+	})
+
+	// システムプロンプトとツール定義のトークン数を予約
+	eng.updateReservedTokens()
+
+	return eng
 }
 
 // logf はログメッセージを出力する。logw が nil の場合は何もしない。
@@ -52,7 +73,9 @@ func (e *Engine) logf(format string, args ...any) {
 // Run はユーザー入力を受け取り、エージェントループを実行して結果を返す。
 // メッセージ履歴は Engine に蓄積され、複数回の Run() でマルチターン対話を実現する。
 func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
-	e.messages = append(e.messages, UserMessage(input))
+	e.ctxManager.Add(UserMessage(input))
+	e.logf("[context] %d/%d tokens (%.0f%%)",
+		e.ctxManager.TokenCount(), e.ctxManager.TokenLimit(), e.ctxManager.UsageRatio()*100)
 
 	var totalUsage llm.Usage
 	for turn := 0; turn < e.maxTurns; turn++ {
@@ -113,7 +136,7 @@ func (e *Engine) chatStep(ctx context.Context) (*LoopResult, error) {
 	}
 
 	assistantMsg := resp.Choices[0].Message
-	e.messages = append(e.messages, assistantMsg)
+	e.ctxManager.Add(assistantMsg)
 
 	return &LoopResult{
 		Kind:    Terminal,
@@ -158,10 +181,8 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 		callID := generateCallID()
 		errContent := fmt.Sprintf("Error: tool %q not found. Available tools: %s",
 			rr.Tool, e.availableToolNames())
-		e.messages = append(e.messages,
-			ToolCallMessage(callID, rr.Tool, rr.Arguments),
-			ToolResultMessage(callID, errContent),
-		)
+		e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
+		e.ctxManager.Add(ToolResultMessage(callID, errContent))
 		return &LoopResult{
 			Kind:   Continue,
 			Reason: "tool_not_found",
@@ -175,9 +196,7 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 
 	// 5. 合成メッセージの構築と履歴への追加
 	callID := generateCallID()
-	e.messages = append(e.messages,
-		ToolCallMessage(callID, rr.Tool, rr.Arguments),
-	)
+	e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
 
 	var resultContent string
 	switch {
@@ -195,7 +214,7 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 		}
 		e.logf("[tool] %s 完了 (%d bytes): %s", rr.Tool, len(resultContent), preview)
 	}
-	e.messages = append(e.messages, ToolResultMessage(callID, resultContent))
+	e.ctxManager.Add(ToolResultMessage(callID, resultContent))
 
 	return &LoopResult{
 		Kind:   Continue,
@@ -216,10 +235,23 @@ func (e *Engine) availableToolNames() string {
 
 // buildMessages はシステムプロンプトと会話履歴を結合してリクエスト用メッセージを構築する。
 func (e *Engine) buildMessages() []llm.Message {
-	msgs := make([]llm.Message, 0, len(e.messages)+1)
+	history := e.ctxManager.Messages()
+	msgs := make([]llm.Message, 0, len(history)+1)
 	if e.systemPrompt != "" {
 		msgs = append(msgs, SystemMessage(e.systemPrompt))
 	}
-	msgs = append(msgs, e.messages...)
+	msgs = append(msgs, history...)
 	return msgs
+}
+
+// updateReservedTokens はシステムプロンプトとツール定義の推定トークン数を計算し、Manager に設定する。
+func (e *Engine) updateReservedTokens() {
+	var reserved int
+	if e.systemPrompt != "" {
+		reserved += agentctx.EstimateTextTokens(e.systemPrompt)
+	}
+	if e.registry.Len() > 0 {
+		reserved += agentctx.EstimateTextTokens(e.registry.FormatForPrompt())
+	}
+	e.ctxManager.SetReserved(reserved)
 }

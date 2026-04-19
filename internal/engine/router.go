@@ -44,9 +44,10 @@ func (e *Engine) routerStep(ctx context.Context) (*routerResponse, *llm.Usage, e
 // buildRouterMessages はルーター用のメッセージリストを構築する。
 func (e *Engine) buildRouterMessages() []llm.Message {
 	routerSys := e.routerSystemPrompt()
-	msgs := make([]llm.Message, 0, len(e.messages)+1)
+	history := e.ctxManager.Messages()
+	msgs := make([]llm.Message, 0, len(history)+1)
 	msgs = append(msgs, SystemMessage(routerSys))
-	msgs = append(msgs, e.messages...)
+	msgs = append(msgs, history...)
 	return msgs
 }
 

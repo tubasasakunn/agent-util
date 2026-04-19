@@ -254,7 +254,7 @@ func TestToolStep_ToolNotFound(t *testing.T) {
 
 	// 履歴にツール不明エラーが含まれることを確認
 	found := false
-	for _, msg := range eng.messages {
+	for _, msg := range eng.ctxManager.Messages() {
 		if msg.Role == "tool" && msg.ContentString() != "" {
 			if errors.Is(nil, nil) { // just checking content
 				content := msg.ContentString()
@@ -326,7 +326,7 @@ func TestToolStep_ToolBusinessError(t *testing.T) {
 
 	// 履歴に "Error:" プレフィックスのツール結果が含まれる
 	foundError := false
-	for _, msg := range eng.messages {
+	for _, msg := range eng.ctxManager.Messages() {
 		if msg.Role == "tool" {
 			content := msg.ContentString()
 			if len(content) > 6 && content[:6] == "Error:" {
@@ -394,30 +394,30 @@ func TestToolStep_MessageHistory(t *testing.T) {
 
 	// メッセージ履歴を確認: user → assistant(tool_calls) → tool → assistant(final)
 	expectedRoles := []string{"user", "assistant", "tool", "assistant"}
-	if len(eng.messages) != len(expectedRoles) {
-		t.Fatalf("messages count = %d, want %d", len(eng.messages), len(expectedRoles))
+	if len(eng.ctxManager.Messages()) != len(expectedRoles) {
+		t.Fatalf("messages count = %d, want %d", len(eng.ctxManager.Messages()), len(expectedRoles))
 	}
 	for i, want := range expectedRoles {
-		if eng.messages[i].Role != want {
-			t.Errorf("messages[%d].Role = %q, want %q", i, eng.messages[i].Role, want)
+		if eng.ctxManager.Messages()[i].Role != want {
+			t.Errorf("messages[%d].Role = %q, want %q", i, eng.ctxManager.Messages()[i].Role, want)
 		}
 	}
 
 	// assistant メッセージに tool_calls があること
-	if len(eng.messages[1].ToolCalls) != 1 {
-		t.Errorf("messages[1].ToolCalls count = %d, want 1", len(eng.messages[1].ToolCalls))
+	if len(eng.ctxManager.Messages()[1].ToolCalls) != 1 {
+		t.Errorf("messages[1].ToolCalls count = %d, want 1", len(eng.ctxManager.Messages()[1].ToolCalls))
 	}
-	if eng.messages[1].ToolCalls[0].Function.Name != "echo" {
-		t.Errorf("tool call name = %q, want %q", eng.messages[1].ToolCalls[0].Function.Name, "echo")
+	if eng.ctxManager.Messages()[1].ToolCalls[0].Function.Name != "echo" {
+		t.Errorf("tool call name = %q, want %q", eng.ctxManager.Messages()[1].ToolCalls[0].Function.Name, "echo")
 	}
 
 	// tool メッセージの内容
-	if eng.messages[2].ContentString() != "echoed" {
-		t.Errorf("tool result = %q, want %q", eng.messages[2].ContentString(), "echoed")
+	if eng.ctxManager.Messages()[2].ContentString() != "echoed" {
+		t.Errorf("tool result = %q, want %q", eng.ctxManager.Messages()[2].ContentString(), "echoed")
 	}
 
 	// tool_call ID の対応
-	if eng.messages[2].ToolCallID != eng.messages[1].ToolCalls[0].ID {
-		t.Errorf("tool_call_id mismatch: %q != %q", eng.messages[2].ToolCallID, eng.messages[1].ToolCalls[0].ID)
+	if eng.ctxManager.Messages()[2].ToolCallID != eng.ctxManager.Messages()[1].ToolCalls[0].ID {
+		t.Errorf("tool_call_id mismatch: %q != %q", eng.ctxManager.Messages()[2].ToolCallID, eng.ctxManager.Messages()[1].ToolCalls[0].ID)
 	}
 }

@@ -14,6 +14,7 @@ type engineConfig struct {
 	systemPrompt string
 	tools        []tool.Tool
 	logWriter    io.Writer
+	tokenLimit   int
 }
 
 const defaultSystemPrompt = "You are a helpful assistant."
@@ -22,6 +23,7 @@ func defaultEngineConfig() engineConfig {
 	return engineConfig{
 		maxTurns:     10,
 		systemPrompt: defaultSystemPrompt,
+		tokenLimit:   8192,
 	}
 }
 
@@ -49,4 +51,10 @@ func WithTools(tools ...tool.Tool) Option {
 // 通常は os.Stderr を渡す。nil の場合はログを出力しない。
 func WithLogWriter(w io.Writer) Option {
 	return func(c *engineConfig) { c.logWriter = w }
+}
+
+// WithTokenLimit はコンテキストのトークン上限を設定する。
+// デフォルトは 8192。
+func WithTokenLimit(n int) Option {
+	return func(c *engineConfig) { c.tokenLimit = n }
 }

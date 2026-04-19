@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -31,6 +32,7 @@ func main() {
 	)
 	eng := engine.New(client,
 		engine.WithMaxTurns(cfg.maxTurns),
+		engine.WithTokenLimit(envCfg.contextSize),
 		engine.WithTools(
 			readfile.New(),
 		),
@@ -106,9 +108,10 @@ func parseFlags() flagConfig {
 }
 
 type envConfig struct {
-	endpoint string
-	model    string
-	apiKey   string
+	endpoint    string
+	model       string
+	apiKey      string
+	contextSize int
 }
 
 func parseEnv() envConfig {
@@ -122,6 +125,12 @@ func parseEnv() envConfig {
 	}
 	if cfg.model == "" {
 		cfg.model = "gemma-4-E2B-it-Q4_K_M"
+	}
+	cfg.contextSize = 8192
+	if s := os.Getenv("SLLM_CONTEXT_SIZE"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			cfg.contextSize = n
+		}
 	}
 	return cfg
 }

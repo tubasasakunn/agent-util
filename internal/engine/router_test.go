@@ -5,8 +5,18 @@ import (
 	"strings"
 	"testing"
 
+	agentctx "ai-agent/internal/context"
 	"ai-agent/internal/llm"
 )
+
+// newTestManager はテスト用に初期メッセージを持つ Manager を生成する。
+func newTestManager(msgs ...llm.Message) *agentctx.Manager {
+	mgr := agentctx.NewManager(8192)
+	for _, m := range msgs {
+		mgr.Add(m)
+	}
+	return mgr
+}
 
 func TestRouterSystemPrompt_ContainsToolList(t *testing.T) {
 	reg := NewRegistry()
@@ -65,9 +75,9 @@ func TestRouterStep_SelectsTool(t *testing.T) {
 	reg.Register(newMockTool("read_file", "Reads a file"))
 
 	eng := &Engine{
-		completer: mc,
-		registry:  reg,
-		messages:  []llm.Message{UserMessage("read test.txt")},
+		completer:  mc,
+		registry:   reg,
+		ctxManager: newTestManager(UserMessage("read test.txt")),
 	}
 
 	rr, usage, err := eng.routerStep(context.Background())
@@ -97,9 +107,9 @@ func TestRouterStep_SelectsNone(t *testing.T) {
 	}
 
 	eng := &Engine{
-		completer: mc,
-		registry:  NewRegistry(),
-		messages:  []llm.Message{UserMessage("1+1は?")},
+		completer:  mc,
+		registry:   NewRegistry(),
+		ctxManager: newTestManager(UserMessage("1+1は?")),
 	}
 
 	rr, _, err := eng.routerStep(context.Background())
@@ -120,9 +130,9 @@ func TestRouterStep_EmptyToolFallsBackToNone(t *testing.T) {
 	}
 
 	eng := &Engine{
-		completer: mc,
-		registry:  NewRegistry(),
-		messages:  []llm.Message{UserMessage("hello")},
+		completer:  mc,
+		registry:   NewRegistry(),
+		ctxManager: newTestManager(UserMessage("hello")),
 	}
 
 	rr, _, err := eng.routerStep(context.Background())
@@ -140,9 +150,9 @@ func TestRouterStep_APIError(t *testing.T) {
 	}
 
 	eng := &Engine{
-		completer: mc,
-		registry:  NewRegistry(),
-		messages:  []llm.Message{UserMessage("test")},
+		completer:  mc,
+		registry:   NewRegistry(),
+		ctxManager: newTestManager(UserMessage("test")),
 	}
 
 	_, _, err := eng.routerStep(context.Background())
@@ -161,10 +171,10 @@ func TestBuildRouterMessages(t *testing.T) {
 	eng := &Engine{
 		systemPrompt: "base prompt",
 		registry:     reg,
-		messages: []llm.Message{
+		ctxManager: newTestManager(
 			UserMessage("hello"),
 			AssistantMessage("hi there"),
-		},
+		),
 	}
 
 	msgs := eng.buildRouterMessages()
@@ -192,9 +202,9 @@ func TestRouterStep_ResponseFormatIsJSON(t *testing.T) {
 	}
 
 	eng := &Engine{
-		completer: mc,
-		registry:  NewRegistry(),
-		messages:  []llm.Message{UserMessage("test")},
+		completer:  mc,
+		registry:   NewRegistry(),
+		ctxManager: newTestManager(UserMessage("test")),
 	}
 
 	eng.routerStep(context.Background())
