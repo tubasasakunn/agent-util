@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"ai-agent/internal/engine"
 	"ai-agent/internal/llm"
 )
 
@@ -16,40 +19,81 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	jsonMode := flag.Bool("json", false, "JSON modeで応答を取得する")
-	flag.Parse()
-
-	prompt := strings.Join(flag.Args(), " ")
-	if prompt == "" {
-		fmt.Fprintln(os.Stderr, "usage: agent [-json] <question>")
-		os.Exit(1)
-	}
-
-	cfg := parseEnv()
+	cfg := parseFlags()
+	envCfg := parseEnv()
 
 	client := llm.NewClient(
-		llm.WithEndpoint(cfg.endpoint),
-		llm.WithModel(cfg.model),
-		llm.WithAPIKey(cfg.apiKey),
+		llm.WithEndpoint(envCfg.endpoint),
+		llm.WithModel(envCfg.model),
+		llm.WithAPIKey(envCfg.apiKey),
 	)
+	eng := engine.New(client, engine.WithMaxTurns(cfg.maxTurns))
 
-	req := &llm.ChatRequest{
-		Messages: []llm.Message{
-			{Role: "user", Content: llm.StringPtr(prompt)},
-		},
-	}
-	if *jsonMode {
-		req.ResponseFormat = &llm.ResponseFormat{Type: "json_object"}
+	// 引数ありならワンショットモード
+	if cfg.prompt != "" {
+		result, err := eng.Run(ctx, cfg.prompt)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(result.Response)
+		return
 	}
 
-	resp, err := client.ChatCompletion(ctx, req)
-	if err != nil {
+	// 引数なしならREPLモード
+	if err := runREPL(ctx, eng); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	if len(resp.Choices) > 0 {
-		fmt.Println(resp.Choices[0].Message.ContentString())
+func runREPL(ctx context.Context, eng *engine.Engine) error {
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Fprint(os.Stderr, "> ")
+		if !scanner.Scan() {
+			break // EOF
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if line == "exit" || line == "quit" {
+			break
+		}
+
+		reqCtx, reqCancel := context.WithCancel(ctx)
+		result, err := eng.Run(reqCtx, line)
+		reqCancel()
+
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				fmt.Fprintln(os.Stderr, "\n(interrupted)")
+				return nil
+			}
+			return fmt.Errorf("run: %w", err)
+		}
+		fmt.Println(result.Response)
+		fmt.Println()
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	return nil
+}
+
+type flagConfig struct {
+	prompt   string
+	maxTurns int
+}
+
+func parseFlags() flagConfig {
+	maxTurns := flag.Int("max-turns", 10, "1回のRunで許可する最大ターン数")
+	flag.Parse()
+
+	return flagConfig{
+		prompt:   strings.Join(flag.Args(), " "),
+		maxTurns: *maxTurns,
 	}
 }
 
