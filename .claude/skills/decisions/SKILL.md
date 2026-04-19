@@ -1,7 +1,15 @@
 ---
 name: decision
 description: プロジェクトの技術的な判断（ADR）を記録・参照します。技術選定、設計判断、アーキテクチャの決定を行った場合や、過去の判断を確認したい場合に使用してください。判断、選定、比較、なぜこうしたか、といった話題で使用してください。
+user-invocable: true
 argument-hint: "[list | キーワード | 空=新規記録]"
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
 ---
 
 # Decision Log
@@ -9,7 +17,7 @@ argument-hint: "[list | キーワード | 空=新規記録]"
 引数: $ARGUMENTS
 
 プロジェクトの技術的な判断をADR（Architecture Decision Record）として記録・参照する。
-記録は `.claude/decisions/` に保存する。
+記録は `.claude/skills/decisions/` に保存する。
 
 ## ワークフロー
 
@@ -19,19 +27,19 @@ argument-hint: "[list | キーワード | 空=新規記録]"
 
 会話の文脈から技術的な判断を抽出して記録する。
 
-1. `.claude/decisions/` の既存ファイルを確認し、次の連番を決定する
+1. `.claude/skills/decisions/` の既存ファイルを確認し、次の連番を決定する
 2. 会話から以下を抽出する:
    - 何を判断したか
    - どんな選択肢を検討したか
    - 何を選び、なぜ選んだか
    - この判断による影響
 3. 記録テンプレートに従ってドラフトを作成し、ユーザーに確認する
-4. 確認後、`.claude/decisions/NNN-<slug>.md` として保存する
+4. 確認後、`.claude/skills/decisions/NNN-<slug>.md` として保存する
 5. 既存の判断と矛盾する場合、古い方の `status` を `superseded` に更新する
 
 ### モード2: 一覧（引数が `list`）
 
-`.claude/decisions/` 内の全ファイルを読み、以下の形式で一覧表示する:
+`.claude/skills/decisions/` 内の全ファイル（SKILL.md以外）を読み、以下の形式で一覧表示する:
 
 ```
 001 - JSON-RPC over stdioを採用 (2026-04-18) [accepted]
@@ -40,7 +48,7 @@ argument-hint: "[list | キーワード | 空=新規記録]"
 
 ### モード3: 検索（その他の引数）
 
-`.claude/decisions/` 内のファイルをGrepで検索し、引数に関連する判断を見つけて内容を表示する。
+`.claude/skills/decisions/` 内のファイルをGrepで検索し、引数に関連する判断を見つけて内容を表示する。
 複数マッチした場合は全て表示する。該当なしの場合はその旨を伝える。
 
 このモードはClaude自身が新たな技術判断をする際にも活用する。過去の判断との一貫性を保つため、関連するキーワードで検索してから新しい判断を提案すること。

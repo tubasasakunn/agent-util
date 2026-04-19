@@ -1,7 +1,15 @@
 ---
 name: investigate
 description: 実験・検証の計画、実行、結果記録を管理します。技術検証、能力テスト、PoC、ベンチマーク、比較実験を行う場合や、過去の検証結果を参照したい場合に使用してください。試す、テスト、検証、実験、動作確認、比較、ベンチマーク、といった話題で使用してください。
+user-invocable: true
 argument-hint: "[list | キーワード | 空=新規検証]"
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - Bash
 ---
 
 # Investigation Log
@@ -9,7 +17,7 @@ argument-hint: "[list | キーワード | 空=新規検証]"
 引数: $ARGUMENTS
 
 プロジェクトの技術検証・実験をディレクトリ単位で管理する。
-記録は `.claude/investigation/` に連番ディレクトリとして保存する。
+記録は `.claude/skills/investigation/` に連番ディレクトリとして保存する。
 
 ## ワークフロー
 
@@ -19,11 +27,11 @@ argument-hint: "[list | キーワード | 空=新規検証]"
 
 新しい検証を開始する。
 
-1. `.claude/investigation/` の既存ディレクトリを確認し、次の連番を決定する
+1. `.claude/skills/investigation/` の既存ディレクトリを確認し、次の連番を決定する
 2. ユーザーと検証の目的・手段を確認する
 3. 以下の構成でディレクトリとREADMEを作成する:
    ```
-   investigation/NNN_検証名/
+   .claude/skills/investigation/NNN_検証名/
    ├── README.md        ← 目的・手段・結果
    ├── *.sh / *.go / *  ← 検証スクリプト
    └── results/         ← 実行結果の保存先
@@ -33,7 +41,7 @@ argument-hint: "[list | キーワード | 空=新規検証]"
 
 ### モード2: 一覧（引数が `list`）
 
-`.claude/investigation/` 内の全ディレクトリを読み、以下の形式で一覧表示する:
+`.claude/skills/investigation/` 内の全ディレクトリ（連番で始まるもの）を読み、以下の形式で一覧表示する:
 
 ```
 001 - SLLM Function Calling能力テスト [完了]
@@ -44,7 +52,7 @@ argument-hint: "[list | キーワード | 空=新規検証]"
 
 ### モード3: 検索（その他の引数）
 
-`.claude/investigation/` 内のファイルをGrepで検索し、引数に関連する検証を見つけて内容を表示する。
+`.claude/skills/investigation/` 内のファイルをGrepで検索し、引数に関連する検証を見つけて内容を表示する。
 新しい検証を始める前に、過去に同様の検証がないか確認する用途で使う。
 
 ## READMEテンプレート

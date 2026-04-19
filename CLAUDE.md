@@ -16,9 +16,9 @@ pkg/tool/        — Tool interface、スキーマ定義
 
 ## スキル
 
-- `/decision` — 技術判断の記録・参照（.claude/decisions/）
-- `/investigate` — 実験検証の記録（.claude/investigation/）
-- `/agent-design` — エージェント設計の知識ベース（.claude/agent-design/）
+- `/decision` — 技術判断の記録・参照（.claude/skills/decisions/）
+- `/investigate` — 実験検証の記録（.claude/skills/investigation/）
+- `/agent-design` — エージェント設計の知識ベース（.claude/skills/agent-design/）
 
 ## 主要な設計判断
 
