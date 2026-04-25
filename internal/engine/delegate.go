@@ -12,6 +12,7 @@ import (
 type delegateArgs struct {
 	Task    string `json:"task"`
 	Context string `json:"context,omitempty"`
+	Mode    string `json:"mode,omitempty"` // "fork"(default) or "worktree"
 }
 
 // delegateStep はサブエージェントを生成し、タスクを委譲して結果を返す。
@@ -46,15 +47,55 @@ func (e *Engine) delegateStep(ctx context.Context, rr *routerResponse, routerUsa
 		e.logf("[delegate] 理由: %s", rr.Reasoning)
 	}
 
+	// worktree モードの場合は worktreeStep へ分岐
+	if da.Mode == "worktree" {
+		return e.worktreeStep(ctx, da, rr, routerUsage)
+	}
+
 	// 子 Engine を生成（delegate_task 無効でネスト再帰防止）
 	child := e.Fork(
 		WithSystemPrompt(e.buildDelegateSystemPrompt(da)),
 	)
 
-	// 子 Engine を実行（context.Context によるキャンセル伝播）
+	return e.runDelegateChild(ctx, child, da, rr, routerUsage)
+}
+
+// worktreeStep は git worktree を作成してサブエージェントを実行する。
+// worktree 作成に失敗した場合はフォールバックとして fork モードで実行する。
+func (e *Engine) worktreeStep(ctx context.Context, da delegateArgs, rr *routerResponse, routerUsage *llm.Usage) (*LoopResult, error) {
+	repoDir := "."
+	if e.workDir != "" {
+		repoDir = e.workDir
+	}
+
+	wt, err := createWorktree(repoDir)
+	if err != nil {
+		e.logf("[worktree] 作成失敗、fork にフォールバック: %s", err)
+		da.Mode = "fork"
+		child := e.Fork(WithSystemPrompt(e.buildDelegateSystemPrompt(da)))
+		return e.runDelegateChild(ctx, child, da, rr, routerUsage)
+	}
+	defer func() {
+		if cleanErr := wt.cleanup(); cleanErr != nil {
+			e.logf("[worktree] クリーンアップエラー: %s", cleanErr)
+		}
+	}()
+
+	e.logf("[worktree] 作成: %s", wt.dir)
+
+	child := e.Fork(
+		WithSystemPrompt(e.buildDelegateSystemPrompt(da)),
+		WithWorkDir(wt.dir),
+	)
+
+	return e.runDelegateChild(ctx, child, da, rr, routerUsage)
+}
+
+// runDelegateChild は子 Engine を実行し、結果を親のコンテキストに追加する。
+// delegateStep と worktreeStep の共通ロジック。
+func (e *Engine) runDelegateChild(ctx context.Context, child *Engine, da delegateArgs, rr *routerResponse, routerUsage *llm.Usage) (*LoopResult, error) {
 	result, err := child.Run(ctx, da.Task)
 
-	// 合成メッセージの構築
 	callID := generateCallID()
 	e.ctxManager.Add(ToolCallMessage(callID, "delegate_task", rr.Arguments))
 

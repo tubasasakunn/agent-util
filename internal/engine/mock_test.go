@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 
 	"ai-agent/internal/llm"
 	"ai-agent/pkg/tool"
@@ -101,4 +103,83 @@ func newMockTool(name, desc string) *mockTool {
 		description: desc,
 		parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
 	}
+}
+
+// concurrentMockCompleter はスレッドセーフな mockCompleter。
+// Coordinator テストなど並列呼び出し時に使用する。
+type concurrentMockCompleter struct {
+	mu        sync.Mutex
+	responses []*llm.ChatResponse
+	calls     int
+	err       error
+}
+
+func (m *concurrentMockCompleter) ChatCompletion(_ context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return nil, m.err
+	}
+	i := m.calls
+	m.calls++
+	if i < len(m.responses) {
+		return m.responses[i], nil
+	}
+	return nil, fmt.Errorf("unexpected call %d", i)
+}
+
+// routingMockCompleter は並列テスト用のルーティングmock。
+// ユーザーメッセージに "always fail" を含む子タスクにはエラーを返し、
+// それ以外の子タスクには成功レスポンスを返す。
+// 親の呼び出し（systemPromptベースでない呼び出し）には parentResponses を順に返す。
+type routingMockCompleter struct {
+	mu                    sync.Mutex
+	parentResponses       []*llm.ChatResponse
+	parentIdx             int
+	childSuccessResponses []*llm.ChatResponse
+	childSuccessIdx       int
+	childFailErr          error
+}
+
+func (m *routingMockCompleter) ChatCompletion(_ context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// サブエージェントかどうかをシステムプロンプトで判定
+	isChild := false
+	isFailChild := false
+	for _, msg := range req.Messages {
+		if msg.Role == "system" && msg.Content != nil {
+			content := *msg.Content
+			if strings.Contains(content, "focused assistant") {
+				isChild = true
+			}
+		}
+		if msg.Role == "user" && msg.Content != nil {
+			content := *msg.Content
+			if strings.Contains(content, "always fail") {
+				isFailChild = true
+			}
+		}
+	}
+
+	if isChild && isFailChild {
+		return nil, m.childFailErr
+	}
+
+	if isChild {
+		i := m.childSuccessIdx
+		m.childSuccessIdx++
+		if i < len(m.childSuccessResponses) {
+			return m.childSuccessResponses[i], nil
+		}
+		return nil, fmt.Errorf("unexpected child call %d", i)
+	}
+
+	i := m.parentIdx
+	m.parentIdx++
+	if i < len(m.parentResponses) {
+		return m.parentResponses[i], nil
+	}
+	return nil, fmt.Errorf("unexpected parent call %d", i)
 }

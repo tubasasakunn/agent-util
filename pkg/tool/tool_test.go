@@ -83,6 +83,27 @@ func TestDefinitionOf(t *testing.T) {
 	}
 }
 
+func TestWorkDirContext_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+
+	// 未設定時は空文字
+	if got := WorkDirFromContext(ctx); got != "" {
+		t.Errorf("WorkDirFromContext(empty) = %q, want empty", got)
+	}
+
+	// 設定 → 取得
+	ctx = ContextWithWorkDir(ctx, "/tmp/worktree-1")
+	if got := WorkDirFromContext(ctx); got != "/tmp/worktree-1" {
+		t.Errorf("WorkDirFromContext = %q, want %q", got, "/tmp/worktree-1")
+	}
+
+	// 上書き
+	ctx = ContextWithWorkDir(ctx, "/tmp/worktree-2")
+	if got := WorkDirFromContext(ctx); got != "/tmp/worktree-2" {
+		t.Errorf("WorkDirFromContext(overwrite) = %q, want %q", got, "/tmp/worktree-2")
+	}
+}
+
 func TestResult_JSON(t *testing.T) {
 	tests := []struct {
 		name string

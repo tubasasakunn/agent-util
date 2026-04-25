@@ -5,6 +5,22 @@ import (
 	"encoding/json"
 )
 
+// workDirKey はコンテキストからワーキングディレクトリを取得するためのキー。
+type workDirKey struct{}
+
+// ContextWithWorkDir はワーキングディレクトリを設定したコンテキストを返す。
+// Engine が tool 実行前にコンテキストへ注入し、ツール側が WorkDirFromContext で取得する。
+func ContextWithWorkDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, workDirKey{}, dir)
+}
+
+// WorkDirFromContext はコンテキストからワーキングディレクトリを取得する。
+// 設定されていない場合は空文字を返す（ツールはデフォルト動作を使う）。
+func WorkDirFromContext(ctx context.Context) string {
+	dir, _ := ctx.Value(workDirKey{}).(string)
+	return dir
+}
+
 // Tool はツールの統一契約。
 // ツール実装者はこのインターフェースを満たすことで、エージェントハーネスに登録できる。
 type Tool interface {

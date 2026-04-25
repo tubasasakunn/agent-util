@@ -108,4 +108,37 @@ allowed-tools:
 - 結果のJSONファイルは `results/` サブディレクトリに保存する
 - READMEの「設計への示唆」セクションで、結果がプロジェクト設計にどう反映されるべきかを明記する
 - 検証結果から設計判断が導かれた場合は `/decision` で別途記録する
-- **mockテストだけで終わらせず、必ず実機SLLM（Gemma 4 E2B）でも手動実行して結果を記録すること。** mockはロジックの正しさを保証するが、SLLMの実際の出力品質（JSON形式の正確さ、ツール選択の判断力、レイテンシ）は実機でしか検証できない。READMEに「実機検証」セクションを設け、`go run ./cmd/agent/` の実行結果を記録する
+- **mockテストだけで終わらせず、必ず実機SLLM（Gemma 4 E2B）でも手動実行して結果を記録すること。** mockはロジックの正しさを保証するが、SLLMの実際の出力品質（JSON形式の正確さ、ツール選択の判断力、レイテンシ）は実機でしか検証できない。READMEに「実機検証」セクションを設け、以下のコマンドで実行した結果を記録する
+
+## 実機SLLM検証の手順
+
+### 接続情報
+```bash
+export SLLM_ENDPOINT="http://localhost:8080/v1/chat/completions"
+export SLLM_API_KEY="sk-gemma4"
+```
+
+### 実行方法
+
+**ワンショットモード（推奨）:**
+```bash
+SLLM_ENDPOINT="http://localhost:8080/v1/chat/completions" SLLM_API_KEY="sk-gemma4" \
+  go run ./cmd/agent/ "プロンプト"
+```
+
+**REPLモード:**
+```bash
+SLLM_ENDPOINT="http://localhost:8080/v1/chat/completions" SLLM_API_KEY="sk-gemma4" \
+  go run ./cmd/agent/
+```
+
+### サーバー疎通確認
+```bash
+curl -s http://localhost:8080/v1/models -H "Authorization: Bearer sk-gemma4"
+```
+→ モデル一覧が返ればOK。`Invalid or missing token` ならAPIキーを確認。接続拒否ならサーバー未起動。
+
+### 検証時の注意
+- SLLMはレスポンスに5〜60秒かかる（タスクの複雑さによる）。タイムアウトは120秒以上に設定する
+- 英語プロンプトの方がJSON出力の精度が高い傾向がある
+- ツール選択の正確性はプロンプトの明示性に依存する（「delegate a subtask to...」のように明確に指示すると正確）

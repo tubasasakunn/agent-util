@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"ai-agent/pkg/tool"
 )
@@ -37,7 +38,7 @@ type readFileArgs struct {
 	Path string `json:"path"`
 }
 
-func (t *Tool) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
+func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var a readFileArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return tool.Result{Content: "invalid arguments: " + err.Error(), IsError: true}, nil
@@ -46,7 +47,13 @@ func (t *Tool) Execute(_ context.Context, args json.RawMessage) (tool.Result, er
 		return tool.Result{Content: "path is required", IsError: true}, nil
 	}
 
-	data, err := os.ReadFile(a.Path)
+	// workDir が設定されていて相対パスの場合、workDir を基準に解決する
+	path := a.Path
+	if workDir := tool.WorkDirFromContext(ctx); workDir != "" && !filepath.IsAbs(path) {
+		path = filepath.Join(workDir, path)
+	}
+
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return tool.Result{
 			Content: fmt.Sprintf("failed to read file: %s", err.Error()),
@@ -57,7 +64,7 @@ func (t *Tool) Execute(_ context.Context, args json.RawMessage) (tool.Result, er
 	return tool.Result{
 		Content: string(data),
 		Metadata: map[string]any{
-			"path":  a.Path,
+			"path":  path,
 			"bytes": len(data),
 		},
 	}, nil

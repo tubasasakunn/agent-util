@@ -2,12 +2,14 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"ai-agent/internal/llm"
+	"ai-agent/pkg/tool"
 )
 
 func TestDelegateStep_BasicFlow(t *testing.T) {
@@ -484,6 +486,115 @@ func TestDelegateStep_WithContext(t *testing.T) {
 	// 子のシステムプロンプトにコンテキストが含まれる
 	if !strings.Contains(childSystemPrompt, "/tmp/test.txt") {
 		t.Error("child system prompt should contain provided context")
+	}
+}
+
+func TestDelegateStep_WorktreeMode(t *testing.T) {
+	// worktree モードで子 Engine が workDir 付きで生成されることを検証
+	repoDir := setupTestRepo(t)
+
+	echoTool := newMockTool("echo", "Echoes")
+
+	var childWorkDir string
+	// workDir 付きで実行されるツールを使って workDir を検出する
+	workDirTool := &mockTool{
+		name:        "check_dir",
+		description: "Check working directory",
+		parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+		executeFunc: func(ctx context.Context, args json.RawMessage) (tool.Result, error) {
+			childWorkDir = tool.WorkDirFromContext(ctx)
+			return tool.Result{Content: "dir: " + childWorkDir}, nil
+		},
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			// 1. 親ルーター: delegate_task(worktree)
+			chatResponse(`{"tool":"delegate_task","arguments":{"task":"check files","mode":"worktree"},"reasoning":"need isolation"}`),
+			// 2. 子ルーター: check_dir
+			chatResponse(`{"tool":"check_dir","arguments":{},"reasoning":"check"}`),
+			// 3. 子ルーター: none
+			chatResponse(`{"tool":"none","arguments":{},"reasoning":"done"}`),
+			// 4. 子 chatStep
+			makeResponse("checked", llm.Usage{TotalTokens: 10}),
+			// 5. 親ルーター: none
+			chatResponse(`{"tool":"none","arguments":{},"reasoning":"done"}`),
+			// 6. 親 chatStep
+			makeResponse("final", llm.Usage{}),
+		},
+	}
+
+	eng := New(mock, WithTools(echoTool, workDirTool), WithWorkDir(repoDir))
+	result, err := eng.Run(context.Background(), "test worktree")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "final" {
+		t.Errorf("response = %q", result.Response)
+	}
+
+	// 子 Engine の workDir が worktree ディレクトリに設定されている
+	if childWorkDir == "" {
+		t.Error("child workDir should be set in worktree mode")
+	}
+	if childWorkDir == repoDir {
+		t.Error("child workDir should differ from parent repoDir (should be worktree path)")
+	}
+}
+
+func TestDelegateStep_WorktreeFallback(t *testing.T) {
+	// git リポジトリでないディレクトリでは fork にフォールバック
+	echoTool := newMockTool("echo", "Echoes")
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			// 1. 親ルーター: delegate_task(worktree)
+			chatResponse(`{"tool":"delegate_task","arguments":{"task":"do something","mode":"worktree"},"reasoning":"test"}`),
+			// worktree 作成失敗 → fork フォールバック
+			// 2. 子ルーター: none
+			chatResponse(`{"tool":"none","arguments":{},"reasoning":"answer"}`),
+			// 3. 子 chatStep
+			makeResponse("fallback result", llm.Usage{TotalTokens: 10}),
+			// 4. 親ルーター: none
+			chatResponse(`{"tool":"none","arguments":{},"reasoning":"done"}`),
+			// 5. 親 chatStep
+			makeResponse("final fallback", llm.Usage{}),
+		},
+	}
+
+	// 非 git ディレクトリを workDir に指定
+	tmpDir := t.TempDir()
+	eng := New(mock, WithTools(echoTool), WithWorkDir(tmpDir))
+	result, err := eng.Run(context.Background(), "test fallback")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "final fallback" {
+		t.Errorf("response = %q", result.Response)
+	}
+}
+
+func TestDelegateStep_DefaultModeFork(t *testing.T) {
+	// mode 未指定時は fork モードとして動作する（既存テストと同等だが明示的にテスト）
+	echoTool := newMockTool("echo", "Echoes")
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			chatResponse(`{"tool":"delegate_task","arguments":{"task":"simple task"},"reasoning":"test"}`),
+			chatResponse(`{"tool":"none","arguments":{},"reasoning":"answer"}`),
+			makeResponse("fork result", llm.Usage{TotalTokens: 10}),
+			chatResponse(`{"tool":"none","arguments":{},"reasoning":"done"}`),
+			makeResponse("final fork", llm.Usage{}),
+		},
+	}
+
+	eng := New(mock, WithTools(echoTool))
+	result, err := eng.Run(context.Background(), "test default mode")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "final fork" {
+		t.Errorf("response = %q", result.Response)
 	}
 }
 
