@@ -34,6 +34,7 @@ pkg/tool/        — Tool interface、スキーマ定義
 - ADR-010: Ralph WiggumループにファイルシステムベースのSessionRunnerを採用
 - ADR-011: PromptBuilderによるセクションベースのプロンプト構成を採用
 - ADR-012: 権限とガードレールにPermissionChecker+GuardRegistryの2層分離パターンを採用
+- ADR-013: JSON-RPCサーバーにRemoteToolアダプタ+PendingRequestsパターンを採用
 
 詳細は `/decision list` で確認。
 

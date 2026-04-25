@@ -14,6 +14,7 @@ import (
 
 	"ai-agent/internal/engine"
 	"ai-agent/internal/llm"
+	"ai-agent/internal/rpc"
 	"ai-agent/internal/tools/readfile"
 )
 
@@ -32,6 +33,21 @@ func main() {
 	)
 	// デフォルトパーミッションポリシー: ReadOnly は自動承認、それ以外は ask
 	defaultPolicy := engine.PermissionPolicy{}
+
+	// RPCモード（JSON-RPC over stdio）: ラッパーが全ツールを提供するためビルトインツールは登録しない
+	if cfg.rpcMode {
+		rpcOpts := []engine.Option{
+			engine.WithMaxTurns(cfg.maxTurns),
+			engine.WithTokenLimit(envCfg.contextSize),
+			engine.WithLogWriter(os.Stderr),
+		}
+		eng := engine.New(client, rpcOpts...)
+		if err := runRPC(ctx, eng); err != nil {
+			fmt.Fprintf(os.Stderr, "rpc: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	opts := []engine.Option{
 		engine.WithMaxTurns(cfg.maxTurns),
@@ -118,16 +134,26 @@ func runREPL(ctx context.Context, eng *engine.Engine, reader *bufio.Reader) erro
 type flagConfig struct {
 	prompt   string
 	maxTurns int
+	rpcMode  bool
 }
 
 func parseFlags() flagConfig {
 	maxTurns := flag.Int("max-turns", 10, "1回のRunで許可する最大ターン数")
+	rpcMode := flag.Bool("rpc", false, "JSON-RPCサーバーモードで起動")
 	flag.Parse()
 
 	return flagConfig{
 		prompt:   strings.Join(flag.Args(), " "),
 		maxTurns: *maxTurns,
+		rpcMode:  *rpcMode,
 	}
+}
+
+func runRPC(ctx context.Context, eng *engine.Engine) error {
+	srv := rpc.New(os.Stdin, os.Stdout, rpc.WithLogWriter(os.Stderr))
+	handlers := rpc.NewHandlers(eng, srv)
+	handlers.RegisterAll()
+	return srv.Serve(ctx)
 }
 
 type envConfig struct {

@@ -33,6 +33,7 @@ type Engine struct {
 	verifiers              *VerifierRegistry
 	permChecker            *PermissionChecker // nil なら全許可（後方互換）
 	guards                 *GuardRegistry     // nil ならガードなし（後方互換）
+	stepCallback           StepCallback       // nil ならコールバックなし
 }
 
 // New は Engine を生成する。
@@ -96,6 +97,7 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 		verifiers:              NewVerifierRegistry(cfg.verifiers...),
 		permChecker:            permChecker,
 		guards:                 guards,
+		stepCallback:           cfg.stepCallback,
 	}
 
 	// PromptBuilder を初期化
@@ -195,6 +197,16 @@ func (e *Engine) UsageRatio() float64 {
 	return e.ctxManager.UsageRatio()
 }
 
+// RegisterTool はツールを動的に登録する。
+// JSON-RPC の tool.register で使用する。
+func (e *Engine) RegisterTool(t tool.Tool) error {
+	if err := e.registry.Register(t); err != nil {
+		return err
+	}
+	e.updateReservedTokens()
+	return nil
+}
+
 // logf はログメッセージを出力する。logw が nil の場合は何もしない。
 func (e *Engine) logf(format string, args ...any) {
 	if e.logw != nil {
@@ -267,6 +279,21 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 		totalUsage.PromptTokens += lr.Usage.PromptTokens
 		totalUsage.CompletionTokens += lr.Usage.CompletionTokens
 		totalUsage.TotalTokens += lr.Usage.TotalTokens
+
+		// ステップコールバック（JSON-RPCストリーミング通知用）
+		if e.stepCallback != nil {
+			evt := StepEvent{
+				Turn:       turn + 1,
+				Reason:     lr.Reason,
+				UsageRatio: e.ctxManager.UsageRatio(),
+				TokenCount: e.ctxManager.TokenCount(),
+				TokenLimit: e.ctxManager.TokenLimit(),
+			}
+			if lr.Kind == Terminal {
+				evt.Response = lr.Message.ContentString()
+			}
+			e.stepCallback(evt)
+		}
 
 		switch lr.Kind {
 		case Terminal:

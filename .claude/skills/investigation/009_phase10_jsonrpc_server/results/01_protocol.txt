@@ -1,0 +1,36 @@
+=== RUN   TestRequest_RoundTrip
+=== RUN   TestRequest_RoundTrip/request_with_id
+=== RUN   TestRequest_RoundTrip/notification_without_id
+=== RUN   TestRequest_RoundTrip/request_without_params
+--- PASS: TestRequest_RoundTrip (0.00s)
+    --- PASS: TestRequest_RoundTrip/request_with_id (0.00s)
+    --- PASS: TestRequest_RoundTrip/notification_without_id (0.00s)
+    --- PASS: TestRequest_RoundTrip/request_without_params (0.00s)
+=== RUN   TestResponse_RoundTrip
+=== RUN   TestResponse_RoundTrip/success_response
+=== RUN   TestResponse_RoundTrip/error_response
+--- PASS: TestResponse_RoundTrip (0.00s)
+    --- PASS: TestResponse_RoundTrip/success_response (0.00s)
+    --- PASS: TestResponse_RoundTrip/error_response (0.00s)
+=== RUN   TestIsNotification
+=== RUN   TestIsNotification/with_id
+=== RUN   TestIsNotification/without_id
+--- PASS: TestIsNotification (0.00s)
+    --- PASS: TestIsNotification/with_id (0.00s)
+    --- PASS: TestIsNotification/without_id (0.00s)
+=== RUN   TestNewResponse
+--- PASS: TestNewResponse (0.00s)
+=== RUN   TestNewErrorResponse
+--- PASS: TestNewErrorResponse (0.00s)
+=== RUN   TestNewNotification
+--- PASS: TestNewNotification (0.00s)
+=== RUN   TestMethodParams_RoundTrip
+=== RUN   TestMethodParams_RoundTrip/AgentRunParams
+=== RUN   TestMethodParams_RoundTrip/ToolExecuteParams
+=== RUN   TestMethodParams_RoundTrip/ToolRegisterParams
+--- PASS: TestMethodParams_RoundTrip (0.00s)
+    --- PASS: TestMethodParams_RoundTrip/AgentRunParams (0.00s)
+    --- PASS: TestMethodParams_RoundTrip/ToolExecuteParams (0.00s)
+    --- PASS: TestMethodParams_RoundTrip/ToolRegisterParams (0.00s)
+PASS
+ok  	ai-agent/pkg/protocol	0.455s

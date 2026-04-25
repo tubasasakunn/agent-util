@@ -35,7 +35,21 @@ type engineConfig struct {
 	inputGuards            []InputGuard
 	toolCallGuards         []ToolCallGuard
 	outputGuards           []OutputGuard
+	stepCallback           StepCallback
 }
+
+// StepEvent はエージェントループの各ステップ完了時に発火するイベント。
+type StepEvent struct {
+	Turn       int     // 現在のターン番号（1始まり）
+	Reason     string  // ステップの結果理由
+	Response   string  // Terminal 時のアシスタント応答（Continue 時は空）
+	UsageRatio float64 // コンテキスト使用率
+	TokenCount int     // 現在のトークン数
+	TokenLimit int     // トークン上限
+}
+
+// StepCallback はステップ完了時のコールバック関数型。
+type StepCallback func(StepEvent)
 
 const defaultSystemPrompt = "You are a helpful assistant."
 
@@ -222,4 +236,10 @@ func WithOutputGuards(guards ...OutputGuard) Option {
 	return func(c *engineConfig) {
 		c.outputGuards = append(c.outputGuards, guards...)
 	}
+}
+
+// WithStepCallback はステップ完了時のコールバックを設定する。
+// JSON-RPC サーバーモードでストリーミング通知に使用する。
+func WithStepCallback(cb StepCallback) Option {
+	return func(c *engineConfig) { c.stepCallback = cb }
 }

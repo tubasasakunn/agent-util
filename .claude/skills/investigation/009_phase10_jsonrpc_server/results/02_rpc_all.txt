@@ -1,0 +1,72 @@
+=== RUN   TestHandlers_ToolRegister
+--- PASS: TestHandlers_ToolRegister (0.00s)
+=== RUN   TestHandlers_ToolRegisterDuplicate
+--- PASS: TestHandlers_ToolRegisterDuplicate (0.00s)
+=== RUN   TestHandlers_AgentRun
+--- PASS: TestHandlers_AgentRun (0.00s)
+=== RUN   TestHandlers_AgentRunBusy
+--- PASS: TestHandlers_AgentRunBusy (0.05s)
+=== RUN   TestHandlers_AgentAbort
+=== RUN   TestHandlers_AgentAbort/no_run_in_progress
+--- PASS: TestHandlers_AgentAbort (0.00s)
+    --- PASS: TestHandlers_AgentAbort/no_run_in_progress (0.00s)
+=== RUN   TestHandlers_AgentRunInvalidParams
+--- PASS: TestHandlers_AgentRunInvalidParams (0.00s)
+=== RUN   TestHandlers_RegisteredToolAvailable
+--- PASS: TestHandlers_RegisteredToolAvailable (0.00s)
+=== RUN   TestIntegration_SimpleRun
+--- PASS: TestIntegration_SimpleRun (0.00s)
+=== RUN   TestIntegration_ToolRegisterAndRun
+--- PASS: TestIntegration_ToolRegisterAndRun (0.00s)
+=== RUN   TestIntegration_StreamNotifications
+--- PASS: TestIntegration_StreamNotifications (0.00s)
+=== RUN   TestIntegration_InvalidMethod
+--- PASS: TestIntegration_InvalidMethod (0.00s)
+=== RUN   TestIntegration_AgentAbort
+--- PASS: TestIntegration_AgentAbort (0.10s)
+=== RUN   TestNotifier_StreamDelta
+--- PASS: TestNotifier_StreamDelta (0.00s)
+=== RUN   TestNotifier_StreamEnd
+--- PASS: TestNotifier_StreamEnd (0.00s)
+=== RUN   TestNotifier_ContextStatus
+--- PASS: TestNotifier_ContextStatus (0.00s)
+=== RUN   TestPendingRequests_RegisterAndResolve
+--- PASS: TestPendingRequests_RegisterAndResolve (0.00s)
+=== RUN   TestPendingRequests_ResolveNilID
+--- PASS: TestPendingRequests_ResolveNilID (0.00s)
+=== RUN   TestPendingRequests_ResolveUnknownID
+--- PASS: TestPendingRequests_ResolveUnknownID (0.00s)
+=== RUN   TestPendingRequests_CancelAll
+--- PASS: TestPendingRequests_CancelAll (0.00s)
+=== RUN   TestRemoteTool_Metadata
+--- PASS: TestRemoteTool_Metadata (0.00s)
+=== RUN   TestRemoteTool_Execute
+--- PASS: TestRemoteTool_Execute (0.00s)
+=== RUN   TestRemoteTool_ExecuteError
+--- PASS: TestRemoteTool_ExecuteError (0.00s)
+=== RUN   TestRemoteTool_ExecuteTimeout
+--- PASS: TestRemoteTool_ExecuteTimeout (0.10s)
+=== RUN   TestServer_HandleRequest
+--- PASS: TestServer_HandleRequest (0.00s)
+=== RUN   TestServer_MethodNotFound
+--- PASS: TestServer_MethodNotFound (0.00s)
+=== RUN   TestServer_InvalidJSON
+--- PASS: TestServer_InvalidJSON (0.00s)
+=== RUN   TestServer_InvalidVersion
+--- PASS: TestServer_InvalidVersion (0.00s)
+=== RUN   TestServer_NotificationNoResponse
+--- PASS: TestServer_NotificationNoResponse (0.10s)
+=== RUN   TestServer_Notify
+--- PASS: TestServer_Notify (0.00s)
+=== RUN   TestServer_SendRequest
+--- PASS: TestServer_SendRequest (0.00s)
+=== RUN   TestServer_ConcurrentWrites
+--- PASS: TestServer_ConcurrentWrites (0.00s)
+=== RUN   TestServer_EOF
+--- PASS: TestServer_EOF (0.00s)
+=== RUN   TestServer_EmptyLines
+--- PASS: TestServer_EmptyLines (0.00s)
+=== RUN   TestServer_HandlerError
+--- PASS: TestServer_HandlerError (0.00s)
+PASS
+ok  	ai-agent/internal/rpc	0.720s
