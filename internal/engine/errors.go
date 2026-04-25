@@ -55,6 +55,12 @@ func classifyError(err error) ErrorClass {
 		return ErrClassFatal
 	}
 
+	// トリップワイヤ → Fatal（即時停止）
+	var tw *TripwireError
+	if errors.As(err, &tw) {
+		return ErrClassFatal
+	}
+
 	// ルーターパースエラー → Transient（SLLMのJSON出力は不安定）
 	var rpe *RouterParseError
 	if errors.As(err, &rpe) {

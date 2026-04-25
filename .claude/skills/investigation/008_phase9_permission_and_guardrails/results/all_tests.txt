@@ -1,0 +1,402 @@
+=== RUN   TestAuditLogger_Log
+=== RUN   TestAuditLogger_Log/allowed_decision
+=== RUN   TestAuditLogger_Log/denied_decision
+=== RUN   TestAuditLogger_Log/user_approved_decision
+--- PASS: TestAuditLogger_Log (0.00s)
+    --- PASS: TestAuditLogger_Log/allowed_decision (0.00s)
+    --- PASS: TestAuditLogger_Log/denied_decision (0.00s)
+    --- PASS: TestAuditLogger_Log/user_approved_decision (0.00s)
+=== RUN   TestAuditLogger_NilWriter
+--- PASS: TestAuditLogger_NilWriter (0.00s)
+=== RUN   TestAuditLogger_NilLogger
+--- PASS: TestAuditLogger_NilLogger (0.00s)
+=== RUN   TestCoordinateStep_BasicParallel
+--- PASS: TestCoordinateStep_BasicParallel (0.00s)
+=== RUN   TestCoordinateStep_PartialFailure
+--- PASS: TestCoordinateStep_PartialFailure (0.00s)
+=== RUN   TestCoordinateStep_EmptyTasks
+--- PASS: TestCoordinateStep_EmptyTasks (0.00s)
+=== RUN   TestCoordinateStep_ContextCancellation
+--- PASS: TestCoordinateStep_ContextCancellation (0.00s)
+=== RUN   TestCoordinateStep_NestingPrevention
+--- PASS: TestCoordinateStep_NestingPrevention (0.00s)
+=== RUN   TestCoordinateStep_ResultBudget
+--- PASS: TestCoordinateStep_ResultBudget (0.00s)
+=== RUN   TestCoordinateStep_InvalidArgs
+--- PASS: TestCoordinateStep_InvalidArgs (0.00s)
+=== RUN   TestDelegateStep_BasicFlow
+--- PASS: TestDelegateStep_BasicFlow (0.00s)
+=== RUN   TestDelegateStep_ResultCondensation
+--- PASS: TestDelegateStep_ResultCondensation (0.00s)
+=== RUN   TestDelegateStep_ChildEngineError
+--- PASS: TestDelegateStep_ChildEngineError (0.00s)
+=== RUN   TestDelegateStep_ContextCancellation
+--- PASS: TestDelegateStep_ContextCancellation (0.00s)
+=== RUN   TestDelegateStep_InvalidArgs
+--- PASS: TestDelegateStep_InvalidArgs (0.00s)
+=== RUN   TestDelegateStep_NestingPrevention
+--- PASS: TestDelegateStep_NestingPrevention (0.00s)
+=== RUN   TestFork_InheritsSettings
+--- PASS: TestFork_InheritsSettings (0.00s)
+=== RUN   TestFork_IndependentContext
+--- PASS: TestFork_IndependentContext (0.00s)
+=== RUN   TestFork_OverrideOptions
+--- PASS: TestFork_OverrideOptions (0.00s)
+=== RUN   TestCondenseDelegateResult_Short
+--- PASS: TestCondenseDelegateResult_Short (0.00s)
+=== RUN   TestCondenseDelegateResult_Long
+--- PASS: TestCondenseDelegateResult_Long (0.00s)
+=== RUN   TestDelegateStep_WithContext
+--- PASS: TestDelegateStep_WithContext (0.00s)
+=== RUN   TestDelegateStep_WorktreeMode
+--- PASS: TestDelegateStep_WorktreeMode (0.07s)
+=== RUN   TestDelegateStep_WorktreeFallback
+--- PASS: TestDelegateStep_WorktreeFallback (0.01s)
+=== RUN   TestDelegateStep_DefaultModeFork
+--- PASS: TestDelegateStep_DefaultModeFork (0.00s)
+=== RUN   TestDelegateDisabled_FallsThrough
+--- PASS: TestDelegateDisabled_FallsThrough (0.00s)
+=== RUN   TestRun_SingleTurn
+--- PASS: TestRun_SingleTurn (0.00s)
+=== RUN   TestRun_MessageHistory
+--- PASS: TestRun_MessageHistory (0.00s)
+=== RUN   TestRun_SystemPrompt
+--- PASS: TestRun_SystemPrompt (0.00s)
+=== RUN   TestRun_NoSystemPrompt
+--- PASS: TestRun_NoSystemPrompt (0.00s)
+=== RUN   TestRun_ContextCanceled
+--- PASS: TestRun_ContextCanceled (0.00s)
+=== RUN   TestRun_APIError
+--- PASS: TestRun_APIError (0.00s)
+=== RUN   TestRun_EmptyResponse_RetriedThenFails
+--- PASS: TestRun_EmptyResponse_RetriedThenFails (3.27s)
+=== RUN   TestRun_UsageTracking
+--- PASS: TestRun_UsageTracking (0.00s)
+=== RUN   TestRun_WithTools_EndToEnd
+--- PASS: TestRun_WithTools_EndToEnd (0.00s)
+=== RUN   TestToolStep_RouterSelectsNone
+--- PASS: TestToolStep_RouterSelectsNone (0.00s)
+=== RUN   TestToolStep_ToolNotFound
+--- PASS: TestToolStep_ToolNotFound (0.00s)
+=== RUN   TestToolStep_ToolExecutionError
+--- PASS: TestToolStep_ToolExecutionError (0.00s)
+=== RUN   TestToolStep_ToolBusinessError
+--- PASS: TestToolStep_ToolBusinessError (0.00s)
+=== RUN   TestRun_NoTools_Phase2Compatible
+--- PASS: TestRun_NoTools_Phase2Compatible (0.00s)
+=== RUN   TestToolStep_MessageHistory
+--- PASS: TestToolStep_MessageHistory (0.00s)
+=== RUN   TestRun_CompactionDisabled
+--- PASS: TestRun_CompactionDisabled (0.00s)
+=== RUN   TestRun_CompactionTriggered
+--- PASS: TestRun_CompactionTriggered (0.00s)
+=== RUN   TestRun_CompactionReducesContext
+--- PASS: TestRun_CompactionReducesContext (0.00s)
+=== RUN   TestBuildMessages_ReminderInserted
+--- PASS: TestBuildMessages_ReminderInserted (0.00s)
+=== RUN   TestBuildMessages_ShortConversation_NoReminder
+--- PASS: TestBuildMessages_ShortConversation_NoReminder (0.00s)
+=== RUN   TestBuildMessages_NoReminderSection_NoInsert
+--- PASS: TestBuildMessages_NoReminderSection_NoInsert (0.00s)
+=== RUN   TestBuildMessages_ReminderDisabled
+--- PASS: TestBuildMessages_ReminderDisabled (0.00s)
+=== RUN   TestRun_RouterParseError_RetriedThenSucceeds
+--- PASS: TestRun_RouterParseError_RetriedThenSucceeds (0.94s)
+=== RUN   TestRun_RouterParseError_MaxRetriesExceeded
+--- PASS: TestRun_RouterParseError_MaxRetriesExceeded (2.92s)
+=== RUN   TestRun_UserFixableError
+--- PASS: TestRun_UserFixableError (0.00s)
+=== RUN   TestRun_EmptyResponse_RetriedThenSucceeds
+--- PASS: TestRun_EmptyResponse_RetriedThenSucceeds (1.15s)
+=== RUN   TestRun_ConsecutiveFailures_StopsAtLimit
+--- PASS: TestRun_ConsecutiveFailures_StopsAtLimit (0.00s)
+=== RUN   TestRun_ConsecutiveFailures_ResetsOnSuccess
+--- PASS: TestRun_ConsecutiveFailures_ResetsOnSuccess (0.00s)
+=== RUN   TestRun_ConsecutiveFailures_ToolNotFound
+--- PASS: TestRun_ConsecutiveFailures_ToolNotFound (0.00s)
+=== RUN   TestRun_ToolError_ReasonIsSeparated
+--- PASS: TestRun_ToolError_ReasonIsSeparated (0.00s)
+=== RUN   TestRun_VerifyPass
+--- PASS: TestRun_VerifyPass (0.00s)
+=== RUN   TestRun_VerifyFail_ThenFix
+--- PASS: TestRun_VerifyFail_ThenFix (0.00s)
+=== RUN   TestRun_VerifyFail_ConsecutiveCap
+--- PASS: TestRun_VerifyFail_ConsecutiveCap (0.00s)
+=== RUN   TestRun_VerifySkippedOnToolError
+--- PASS: TestRun_VerifySkippedOnToolError (0.00s)
+=== RUN   TestRun_NoVerifiers_NoEffect
+--- PASS: TestRun_NoVerifiers_NoEffect (0.00s)
+=== RUN   TestRun_PermissionDenied_ToolBlocked
+--- PASS: TestRun_PermissionDenied_ToolBlocked (0.00s)
+=== RUN   TestRun_PermissionAllowed_ReadOnly
+--- PASS: TestRun_PermissionAllowed_ReadOnly (0.00s)
+=== RUN   TestRun_PermissionAsk_Approved
+--- PASS: TestRun_PermissionAsk_Approved (0.00s)
+=== RUN   TestRun_PermissionAsk_Rejected
+--- PASS: TestRun_PermissionAsk_Rejected (0.00s)
+=== RUN   TestRun_NoPermissionChecker_BackwardCompat
+--- PASS: TestRun_NoPermissionChecker_BackwardCompat (0.00s)
+=== RUN   TestRun_PermissionFailClosed_NoApprover
+--- PASS: TestRun_PermissionFailClosed_NoApprover (0.00s)
+=== RUN   TestRun_PermissionDenied_ConsecutiveFailures
+--- PASS: TestRun_PermissionDenied_ConsecutiveFailures (0.00s)
+=== RUN   TestRun_InputGuard_Deny
+--- PASS: TestRun_InputGuard_Deny (0.00s)
+=== RUN   TestRun_InputGuard_Tripwire
+--- PASS: TestRun_InputGuard_Tripwire (0.00s)
+=== RUN   TestRun_ToolCallGuard_Deny
+--- PASS: TestRun_ToolCallGuard_Deny (0.00s)
+=== RUN   TestRun_ToolCallGuard_Tripwire
+--- PASS: TestRun_ToolCallGuard_Tripwire (0.00s)
+=== RUN   TestRun_OutputGuard_Deny
+--- PASS: TestRun_OutputGuard_Deny (0.00s)
+=== RUN   TestRun_OutputGuard_Tripwire
+--- PASS: TestRun_OutputGuard_Tripwire (0.00s)
+=== RUN   TestRun_NoGuards_BackwardCompat
+--- PASS: TestRun_NoGuards_BackwardCompat (0.00s)
+=== RUN   TestRun_GuardAndPermission_Coexist
+--- PASS: TestRun_GuardAndPermission_Coexist (0.00s)
+=== RUN   TestClassifyError
+=== RUN   TestClassifyError/nil_error
+=== RUN   TestClassifyError/router_parse_error
+=== RUN   TestClassifyError/wrapped_router_parse_error
+=== RUN   TestClassifyError/empty_response
+=== RUN   TestClassifyError/wrapped_empty_response
+=== RUN   TestClassifyError/api_error_401
+=== RUN   TestClassifyError/api_error_403
+=== RUN   TestClassifyError/api_error_400
+=== RUN   TestClassifyError/api_error_404
+=== RUN   TestClassifyError/wrapped_api_error_401
+=== RUN   TestClassifyError/api_error_500_(after_client_retries)
+=== RUN   TestClassifyError/api_error_429_(after_client_retries)
+=== RUN   TestClassifyError/context_canceled
+=== RUN   TestClassifyError/wrapped_context_canceled
+=== RUN   TestClassifyError/context_deadline_exceeded
+=== RUN   TestClassifyError/tripwire_error
+=== RUN   TestClassifyError/wrapped_tripwire_error
+=== RUN   TestClassifyError/unknown_error
+--- PASS: TestClassifyError (0.00s)
+    --- PASS: TestClassifyError/nil_error (0.00s)
+    --- PASS: TestClassifyError/router_parse_error (0.00s)
+    --- PASS: TestClassifyError/wrapped_router_parse_error (0.00s)
+    --- PASS: TestClassifyError/empty_response (0.00s)
+    --- PASS: TestClassifyError/wrapped_empty_response (0.00s)
+    --- PASS: TestClassifyError/api_error_401 (0.00s)
+    --- PASS: TestClassifyError/api_error_403 (0.00s)
+    --- PASS: TestClassifyError/api_error_400 (0.00s)
+    --- PASS: TestClassifyError/api_error_404 (0.00s)
+    --- PASS: TestClassifyError/wrapped_api_error_401 (0.00s)
+    --- PASS: TestClassifyError/api_error_500_(after_client_retries) (0.00s)
+    --- PASS: TestClassifyError/api_error_429_(after_client_retries) (0.00s)
+    --- PASS: TestClassifyError/context_canceled (0.00s)
+    --- PASS: TestClassifyError/wrapped_context_canceled (0.00s)
+    --- PASS: TestClassifyError/context_deadline_exceeded (0.00s)
+    --- PASS: TestClassifyError/tripwire_error (0.00s)
+    --- PASS: TestClassifyError/wrapped_tripwire_error (0.00s)
+    --- PASS: TestClassifyError/unknown_error (0.00s)
+=== RUN   TestRouterParseError_Unwrap
+--- PASS: TestRouterParseError_Unwrap (0.00s)
+=== RUN   TestTripwireError
+--- PASS: TestTripwireError (0.00s)
+=== RUN   TestCalcStepBackoff
+=== RUN   TestCalcStepBackoff/attempt_0
+=== RUN   TestCalcStepBackoff/attempt_1
+=== RUN   TestCalcStepBackoff/attempt_2
+=== RUN   TestCalcStepBackoff/attempt_3
+--- PASS: TestCalcStepBackoff (0.00s)
+    --- PASS: TestCalcStepBackoff/attempt_0 (0.00s)
+    --- PASS: TestCalcStepBackoff/attempt_1 (0.00s)
+    --- PASS: TestCalcStepBackoff/attempt_2 (0.00s)
+    --- PASS: TestCalcStepBackoff/attempt_3 (0.00s)
+=== RUN   TestGuardRegistry_RunInput
+=== RUN   TestGuardRegistry_RunInput/no_guards_returns_allow
+=== RUN   TestGuardRegistry_RunInput/single_guard_allows
+=== RUN   TestGuardRegistry_RunInput/single_guard_denies
+=== RUN   TestGuardRegistry_RunInput/single_guard_tripwire
+=== RUN   TestGuardRegistry_RunInput/multiple_guards_all_allow
+=== RUN   TestGuardRegistry_RunInput/first_deny_stops_execution
+=== RUN   TestGuardRegistry_RunInput/error_skipped_and_continues
+--- PASS: TestGuardRegistry_RunInput (0.00s)
+    --- PASS: TestGuardRegistry_RunInput/no_guards_returns_allow (0.00s)
+    --- PASS: TestGuardRegistry_RunInput/single_guard_allows (0.00s)
+    --- PASS: TestGuardRegistry_RunInput/single_guard_denies (0.00s)
+    --- PASS: TestGuardRegistry_RunInput/single_guard_tripwire (0.00s)
+    --- PASS: TestGuardRegistry_RunInput/multiple_guards_all_allow (0.00s)
+    --- PASS: TestGuardRegistry_RunInput/first_deny_stops_execution (0.00s)
+    --- PASS: TestGuardRegistry_RunInput/error_skipped_and_continues (0.00s)
+=== RUN   TestGuardRegistry_RunToolCall
+=== RUN   TestGuardRegistry_RunToolCall/no_guards_returns_allow
+=== RUN   TestGuardRegistry_RunToolCall/deny_stops_execution
+=== RUN   TestGuardRegistry_RunToolCall/tripwire_stops_execution
+=== RUN   TestGuardRegistry_RunToolCall/error_skipped
+--- PASS: TestGuardRegistry_RunToolCall (0.00s)
+    --- PASS: TestGuardRegistry_RunToolCall/no_guards_returns_allow (0.00s)
+    --- PASS: TestGuardRegistry_RunToolCall/deny_stops_execution (0.00s)
+    --- PASS: TestGuardRegistry_RunToolCall/tripwire_stops_execution (0.00s)
+    --- PASS: TestGuardRegistry_RunToolCall/error_skipped (0.00s)
+=== RUN   TestGuardRegistry_RunOutput
+=== RUN   TestGuardRegistry_RunOutput/no_guards_returns_allow
+=== RUN   TestGuardRegistry_RunOutput/deny_blocks_output
+=== RUN   TestGuardRegistry_RunOutput/tripwire_on_output
+--- PASS: TestGuardRegistry_RunOutput (0.00s)
+    --- PASS: TestGuardRegistry_RunOutput/no_guards_returns_allow (0.00s)
+    --- PASS: TestGuardRegistry_RunOutput/deny_blocks_output (0.00s)
+    --- PASS: TestGuardRegistry_RunOutput/tripwire_on_output (0.00s)
+=== RUN   TestGuardRegistry_HasGuards
+--- PASS: TestGuardRegistry_HasGuards (0.00s)
+=== RUN   TestGuardRegistry_ContextCanceled
+--- PASS: TestGuardRegistry_ContextCanceled (0.00s)
+=== RUN   TestGuardRegistry_Accessors
+--- PASS: TestGuardRegistry_Accessors (0.00s)
+=== RUN   TestMemoryIndex_FormatForPrompt
+--- PASS: TestMemoryIndex_FormatForPrompt (0.00s)
+=== RUN   TestMemoryIndex_Empty
+--- PASS: TestMemoryIndex_Empty (0.00s)
+=== RUN   TestMemoryIndex_TokenCost
+--- PASS: TestMemoryIndex_TokenCost (0.00s)
+=== RUN   TestEngine_WithMemoryEntries
+--- PASS: TestEngine_WithMemoryEntries (0.00s)
+=== RUN   TestEngine_WithMemoryEntries_ReservedTokens
+--- PASS: TestEngine_WithMemoryEntries_ReservedTokens (0.00s)
+=== RUN   TestToolCallMessage
+--- PASS: TestToolCallMessage (0.00s)
+=== RUN   TestToolResultMessage
+--- PASS: TestToolResultMessage (0.00s)
+=== RUN   TestGenerateCallID
+--- PASS: TestGenerateCallID (0.00s)
+=== RUN   TestPermissionChecker_Check
+=== RUN   TestPermissionChecker_Check/deny_rule_matches_exact_tool_name
+=== RUN   TestPermissionChecker_Check/deny_rule_wildcard_matches_all_tools
+=== RUN   TestPermissionChecker_Check/deny_rule_does_not_match_different_tool
+=== RUN   TestPermissionChecker_Check/allow_rule_matches_exact_tool_name
+=== RUN   TestPermissionChecker_Check/allow_rule_wildcard_matches_all_tools
+=== RUN   TestPermissionChecker_Check/deny_takes_priority_over_allow_for_same_tool
+=== RUN   TestPermissionChecker_Check/read_only_tool_auto-approved_when_no_rules_match
+=== RUN   TestPermissionChecker_Check/user_approver_approves
+=== RUN   TestPermissionChecker_Check/user_approver_rejects
+=== RUN   TestPermissionChecker_Check/user_approver_error_falls_back_to_denied
+=== RUN   TestPermissionChecker_Check/fail-closed_when_no_approver_and_no_rules_match_for_non-readonly_tool
+=== RUN   TestPermissionChecker_Check/deny_checked_before_allow
+=== RUN   TestPermissionChecker_Check/allow_checked_before_read-only_auto-approve
+--- PASS: TestPermissionChecker_Check (0.00s)
+    --- PASS: TestPermissionChecker_Check/deny_rule_matches_exact_tool_name (0.00s)
+    --- PASS: TestPermissionChecker_Check/deny_rule_wildcard_matches_all_tools (0.00s)
+    --- PASS: TestPermissionChecker_Check/deny_rule_does_not_match_different_tool (0.00s)
+    --- PASS: TestPermissionChecker_Check/allow_rule_matches_exact_tool_name (0.00s)
+    --- PASS: TestPermissionChecker_Check/allow_rule_wildcard_matches_all_tools (0.00s)
+    --- PASS: TestPermissionChecker_Check/deny_takes_priority_over_allow_for_same_tool (0.00s)
+    --- PASS: TestPermissionChecker_Check/read_only_tool_auto-approved_when_no_rules_match (0.00s)
+    --- PASS: TestPermissionChecker_Check/user_approver_approves (0.00s)
+    --- PASS: TestPermissionChecker_Check/user_approver_rejects (0.00s)
+    --- PASS: TestPermissionChecker_Check/user_approver_error_falls_back_to_denied (0.00s)
+    --- PASS: TestPermissionChecker_Check/fail-closed_when_no_approver_and_no_rules_match_for_non-readonly_tool (0.00s)
+    --- PASS: TestPermissionChecker_Check/deny_checked_before_allow (0.00s)
+    --- PASS: TestPermissionChecker_Check/allow_checked_before_read-only_auto-approve (0.00s)
+=== RUN   TestPermissionChecker_AuditLogging
+--- PASS: TestPermissionChecker_AuditLogging (0.00s)
+=== RUN   TestPermissionChecker_Policy
+--- PASS: TestPermissionChecker_Policy (0.00s)
+=== RUN   TestPromptBuilder_SectionOrdering
+--- PASS: TestPromptBuilder_SectionOrdering (0.00s)
+=== RUN   TestPromptBuilder_ScopeFiltering
+--- PASS: TestPromptBuilder_ScopeFiltering (0.00s)
+=== RUN   TestPromptBuilder_DynamicSection
+--- PASS: TestPromptBuilder_DynamicSection (0.00s)
+=== RUN   TestPromptBuilder_DynamicOverridesContent
+--- PASS: TestPromptBuilder_DynamicOverridesContent (0.00s)
+=== RUN   TestPromptBuilder_AddOverwrite
+--- PASS: TestPromptBuilder_AddOverwrite (0.00s)
+=== RUN   TestPromptBuilder_Remove
+--- PASS: TestPromptBuilder_Remove (0.00s)
+=== RUN   TestPromptBuilder_EmptySections
+--- PASS: TestPromptBuilder_EmptySections (0.00s)
+=== RUN   TestPromptBuilder_EstimateReservedTokens
+--- PASS: TestPromptBuilder_EstimateReservedTokens (0.00s)
+=== RUN   TestPromptBuilder_DirtyFlag
+--- PASS: TestPromptBuilder_DirtyFlag (0.00s)
+=== RUN   TestPromptBuilder_Has
+--- PASS: TestPromptBuilder_Has (0.00s)
+=== RUN   TestPromptBuilder_Resolve
+--- PASS: TestPromptBuilder_Resolve (0.00s)
+=== RUN   TestPromptBuilder_ScopeManual_NotInBuild
+--- PASS: TestPromptBuilder_ScopeManual_NotInBuild (0.00s)
+=== RUN   TestPromptBuilder_ScopeManual_IncludedInReservedTokens
+--- PASS: TestPromptBuilder_ScopeManual_IncludedInReservedTokens (0.00s)
+=== RUN   TestPromptBuilder_SamePriorityStableOrder
+--- PASS: TestPromptBuilder_SamePriorityStableOrder (0.00s)
+=== RUN   TestRegistry_Register
+--- PASS: TestRegistry_Register (0.00s)
+=== RUN   TestRegistry_Register_Duplicate
+--- PASS: TestRegistry_Register_Duplicate (0.00s)
+=== RUN   TestRegistry_Get
+--- PASS: TestRegistry_Get (0.00s)
+=== RUN   TestRegistry_Definitions_Order
+--- PASS: TestRegistry_Definitions_Order (0.00s)
+=== RUN   TestRegistry_FormatForPrompt
+--- PASS: TestRegistry_FormatForPrompt (0.00s)
+=== RUN   TestRegistry_FormatForPrompt_Empty
+--- PASS: TestRegistry_FormatForPrompt_Empty (0.00s)
+=== RUN   TestScopedFormatForPrompt_MaxTools
+--- PASS: TestScopedFormatForPrompt_MaxTools (0.00s)
+=== RUN   TestScopedFormatForPrompt_IncludeAlways
+--- PASS: TestScopedFormatForPrompt_IncludeAlways (0.00s)
+=== RUN   TestScopedFormatForPrompt_ZeroMaxTools
+--- PASS: TestScopedFormatForPrompt_ZeroMaxTools (0.00s)
+=== RUN   TestScopedFormatForPrompt_MaxToolsExceedsTotal
+--- PASS: TestScopedFormatForPrompt_MaxToolsExceedsTotal (0.00s)
+=== RUN   TestScopedFormatForPrompt_Empty
+--- PASS: TestScopedFormatForPrompt_Empty (0.00s)
+=== RUN   TestRouterSystemPrompt_ContainsToolList
+--- PASS: TestRouterSystemPrompt_ContainsToolList (0.00s)
+=== RUN   TestRouterSystemPrompt_EmptySystemPrompt
+--- PASS: TestRouterSystemPrompt_EmptySystemPrompt (0.00s)
+=== RUN   TestRouterStep_SelectsTool
+--- PASS: TestRouterStep_SelectsTool (0.00s)
+=== RUN   TestRouterStep_SelectsNone
+--- PASS: TestRouterStep_SelectsNone (0.00s)
+=== RUN   TestRouterStep_EmptyToolFallsBackToNone
+--- PASS: TestRouterStep_EmptyToolFallsBackToNone (0.00s)
+=== RUN   TestRouterStep_APIError
+--- PASS: TestRouterStep_APIError (0.00s)
+=== RUN   TestBuildRouterMessages
+--- PASS: TestBuildRouterMessages (0.00s)
+=== RUN   TestRouterStep_ResponseFormatIsJSON
+--- PASS: TestRouterStep_ResponseFormatIsJSON (0.00s)
+=== RUN   TestRouterSystemPrompt_ContainsDelegateAndCoordinator
+--- PASS: TestRouterSystemPrompt_ContainsDelegateAndCoordinator (0.00s)
+=== RUN   TestRouterSystemPrompt_DisabledDelegateAndCoordinator
+--- PASS: TestRouterSystemPrompt_DisabledDelegateAndCoordinator (0.00s)
+=== RUN   TestSessionRunner_AllTasksComplete
+--- PASS: TestSessionRunner_AllTasksComplete (0.01s)
+=== RUN   TestSessionRunner_TaskFailureRetry
+--- PASS: TestSessionRunner_TaskFailureRetry (0.00s)
+=== RUN   TestSessionRunner_MaxSessionsReached
+--- PASS: TestSessionRunner_MaxSessionsReached (0.00s)
+=== RUN   TestSessionRunner_ProgressResumption
+--- PASS: TestSessionRunner_ProgressResumption (0.00s)
+=== RUN   TestSessionRunner_ContextCancellation
+--- PASS: TestSessionRunner_ContextCancellation (0.00s)
+=== RUN   TestSessionRunner_BuildSessionPrompt
+--- PASS: TestSessionRunner_BuildSessionPrompt (0.00s)
+=== RUN   TestSessionRunner_ProgressFilePersistence
+--- PASS: TestSessionRunner_ProgressFilePersistence (0.00s)
+=== RUN   TestVerifierRegistry_AllPass
+--- PASS: TestVerifierRegistry_AllPass (0.00s)
+=== RUN   TestVerifierRegistry_OneFails
+--- PASS: TestVerifierRegistry_OneFails (0.00s)
+=== RUN   TestVerifierRegistry_ErrorInVerifier
+--- PASS: TestVerifierRegistry_ErrorInVerifier (0.00s)
+=== RUN   TestVerifierRegistry_Empty
+--- PASS: TestVerifierRegistry_Empty (0.00s)
+=== RUN   TestVerifierRegistry_ContextCanceled
+--- PASS: TestVerifierRegistry_ContextCanceled (0.00s)
+=== RUN   TestCreateWorktree_Success
+--- PASS: TestCreateWorktree_Success (0.07s)
+=== RUN   TestWorktreeCleanup
+--- PASS: TestWorktreeCleanup (0.06s)
+=== RUN   TestCreateWorktree_InvalidRepo
+--- PASS: TestCreateWorktree_InvalidRepo (0.01s)
+=== RUN   TestWorktree_FileIsolation
+--- PASS: TestWorktree_FileIsolation (0.06s)
+PASS
+ok  	ai-agent/internal/engine	8.836s

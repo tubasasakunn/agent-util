@@ -29,6 +29,12 @@ type engineConfig struct {
 	maxStepRetries         int
 	maxConsecutiveFailures int
 	verifiers              []Verifier
+	permissionPolicy       *PermissionPolicy
+	userApprover           UserApprover
+	auditWriter            io.Writer
+	inputGuards            []InputGuard
+	toolCallGuards         []ToolCallGuard
+	outputGuards           []OutputGuard
 }
 
 const defaultSystemPrompt = "You are a helpful assistant."
@@ -169,5 +175,51 @@ func WithMaxConsecutiveFailures(n int) Option {
 func WithVerifiers(vs ...Verifier) Option {
 	return func(c *engineConfig) {
 		c.verifiers = append(c.verifiers, vs...)
+	}
+}
+
+// WithPermissionPolicy はパーミッションポリシーを設定する。
+// deny→allow→readOnly→ask→fail-closed のパイプラインでツール実行を制御する。
+// 未設定（nil）の場合は全ツールを許可する（後方互換）。
+func WithPermissionPolicy(policy PermissionPolicy) Option {
+	return func(c *engineConfig) {
+		c.permissionPolicy = &policy
+	}
+}
+
+// WithUserApprover はユーザー承認インターフェースを設定する。
+// パーミッションパイプラインでask判定時にユーザーに確認する。
+// nil の場合はask→deny（fail-closed）。
+func WithUserApprover(approver UserApprover) Option {
+	return func(c *engineConfig) { c.userApprover = approver }
+}
+
+// WithAuditWriter は監査ログの出力先を設定する。
+// 未設定の場合は logWriter と同じ出力先を使用する。
+func WithAuditWriter(w io.Writer) Option {
+	return func(c *engineConfig) { c.auditWriter = w }
+}
+
+// WithInputGuards は入力ガードレールを設定する。
+// ユーザー入力の検証（インジェクション検知等）に使用する。
+func WithInputGuards(guards ...InputGuard) Option {
+	return func(c *engineConfig) {
+		c.inputGuards = append(c.inputGuards, guards...)
+	}
+}
+
+// WithToolCallGuards はツール呼び出しガードレールを設定する。
+// ツール呼び出しの引数の安全性検証に使用する。
+func WithToolCallGuards(guards ...ToolCallGuard) Option {
+	return func(c *engineConfig) {
+		c.toolCallGuards = append(c.toolCallGuards, guards...)
+	}
+}
+
+// WithOutputGuards は出力ガードレールを設定する。
+// 最終出力の安全性検証（機密情報の漏洩検知等）に使用する。
+func WithOutputGuards(guards ...OutputGuard) Option {
+	return func(c *engineConfig) {
+		c.outputGuards = append(c.outputGuards, guards...)
 	}
 }

@@ -987,3 +987,413 @@ func TestRun_NoVerifiers_NoEffect(t *testing.T) {
 		t.Errorf("response = %q, want %q", result.Response, "done")
 	}
 }
+
+// --- Phase 9: パーミッション E2E テスト ---
+
+func TestRun_PermissionDenied_ToolBlocked(t *testing.T) {
+	// Deny ルールにより shell ツールが拒否され、LLM にフィードバックされる
+	shellTool := newMockTool("shell", "execute command")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{"command":"ls"}`), // ルーターが shell を選択
+			routerNone(),                            // 拒否後に直接応答
+			chatResponse("understood, shell is blocked"),
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithPermissionPolicy(PermissionPolicy{
+			DenyRules: []PermissionRule{{ToolName: "shell", Reason: "dangerous"}},
+		}),
+	)
+
+	result, err := eng.Run(context.Background(), "run ls")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "understood, shell is blocked" {
+		t.Errorf("response = %q, want %q", result.Response, "understood, shell is blocked")
+	}
+}
+
+func TestRun_PermissionAllowed_ReadOnly(t *testing.T) {
+	// ReadOnly ツールはポリシーが設定されていてもルールに合致しなければ自動承認される
+	readTool := &mockTool{
+		name:        "read_file",
+		description: "read a file",
+		parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+		readOnly:    true,
+		executeFunc: func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+			return tool.Result{Content: "file content here"}, nil
+		},
+	}
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("read_file", `{"path":"test.go"}`),
+			routerNone(),
+			chatResponse("the file contains: file content here"),
+		},
+	}
+	eng := New(mock,
+		WithTools(readTool),
+		WithPermissionPolicy(PermissionPolicy{}), // 空ポリシー → ReadOnly は自動承認
+	)
+
+	result, err := eng.Run(context.Background(), "read test.go")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "the file contains: file content here" {
+		t.Errorf("response = %q, want %q", result.Response, "the file contains: file content here")
+	}
+}
+
+func TestRun_PermissionAsk_Approved(t *testing.T) {
+	// UserApprover が承認 → ツール実行成功
+	shellTool := &mockTool{
+		name:        "shell",
+		description: "execute command",
+		parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+		readOnly:    false,
+		executeFunc: func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+			return tool.Result{Content: "command output"}, nil
+		},
+	}
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{"command":"ls"}`),
+			routerNone(),
+			chatResponse("done"),
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithPermissionPolicy(PermissionPolicy{}), // ルールなし → ask に到達
+		WithUserApprover(&mockUserApprover{responses: []bool{true}}),
+	)
+
+	result, err := eng.Run(context.Background(), "run ls")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "done" {
+		t.Errorf("response = %q, want %q", result.Response, "done")
+	}
+}
+
+func TestRun_PermissionAsk_Rejected(t *testing.T) {
+	// UserApprover が拒否 → PermDenied
+	shellTool := newMockTool("shell", "execute command")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{"command":"rm -rf"}`),
+			routerNone(),
+			chatResponse("ok, cancelled"),
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithPermissionPolicy(PermissionPolicy{}),
+		WithUserApprover(&mockUserApprover{responses: []bool{false}}),
+	)
+
+	result, err := eng.Run(context.Background(), "delete everything")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "ok, cancelled" {
+		t.Errorf("response = %q, want %q", result.Response, "ok, cancelled")
+	}
+}
+
+func TestRun_NoPermissionChecker_BackwardCompat(t *testing.T) {
+	// PermissionChecker 未設定時は全許可（Phase 8 以前と同一動作）
+	shellTool := &mockTool{
+		name:        "shell",
+		description: "execute command",
+		parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+		readOnly:    false,
+		executeFunc: func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+			return tool.Result{Content: "executed"}, nil
+		},
+	}
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{"command":"ls"}`),
+			routerNone(),
+			chatResponse("done"),
+		},
+	}
+	eng := New(mock, WithTools(shellTool)) // WithPermissionPolicy なし
+
+	result, err := eng.Run(context.Background(), "run ls")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "done" {
+		t.Errorf("response = %q, want %q", result.Response, "done")
+	}
+}
+
+func TestRun_PermissionFailClosed_NoApprover(t *testing.T) {
+	// approver なし + ルールなし + 非ReadOnly → fail-closed で拒否
+	shellTool := newMockTool("shell", "execute command")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{}`),
+			routerNone(),
+			chatResponse("denied"),
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithPermissionPolicy(PermissionPolicy{}), // ルールなし、approverなし
+	)
+
+	result, err := eng.Run(context.Background(), "run command")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "denied" {
+		t.Errorf("response = %q, want %q", result.Response, "denied")
+	}
+}
+
+func TestRun_PermissionDenied_ConsecutiveFailures(t *testing.T) {
+	// permission_denied が連続失敗としてカウントされ maxConsecutiveFailures で停止
+	shellTool := newMockTool("shell", "execute command")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{}`), // 1回目: denied
+			routerJSON("shell", `{}`), // 2回目: denied
+			routerJSON("shell", `{}`), // 3回目: denied → maxConsecutiveFailures
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithPermissionPolicy(PermissionPolicy{
+			DenyRules: []PermissionRule{{ToolName: "shell", Reason: "blocked"}},
+		}),
+		WithMaxConsecutiveFailures(3),
+	)
+
+	result, err := eng.Run(context.Background(), "keep trying shell")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Reason != "max_consecutive_failures" {
+		t.Errorf("reason = %q, want %q", result.Reason, "max_consecutive_failures")
+	}
+}
+
+// --- Phase 9: ガードレール + トリップワイヤ E2E テスト ---
+
+func TestRun_InputGuard_Deny(t *testing.T) {
+	// 入力ガードレールが Deny → ループに入らず即応答
+	mock := &mockCompleter{}
+	eng := New(mock,
+		WithInputGuards(&mockInputGuard{
+			name:    "blocker",
+			results: []*GuardResult{{Decision: GuardDeny, Reason: "profanity detected"}},
+		}),
+	)
+
+	result, err := eng.Run(context.Background(), "bad input")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Reason != "input_denied" {
+		t.Errorf("reason = %q, want %q", result.Reason, "input_denied")
+	}
+	if mock.calls != 0 {
+		t.Errorf("completer should not be called, got %d calls", mock.calls)
+	}
+}
+
+func TestRun_InputGuard_Tripwire(t *testing.T) {
+	// 入力ガードレールが Tripwire → エラーで即時停止
+	mock := &mockCompleter{}
+	eng := New(mock,
+		WithInputGuards(&mockInputGuard{
+			name:    "tripwire",
+			results: []*GuardResult{{Decision: GuardTripwire, Reason: "injection attack"}},
+		}),
+	)
+
+	_, err := eng.Run(context.Background(), "malicious input")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var tw *TripwireError
+	if !errors.As(err, &tw) {
+		t.Fatalf("expected TripwireError, got %T: %v", err, err)
+	}
+	if tw.Source != "input" {
+		t.Errorf("source = %q, want %q", tw.Source, "input")
+	}
+}
+
+func TestRun_ToolCallGuard_Deny(t *testing.T) {
+	// ツール呼び出しガードレールが Deny → フィードバック付きで Continue
+	shellTool := &mockTool{
+		name:        "shell",
+		description: "execute command",
+		parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+		readOnly:    false,
+	}
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{"command":"rm -rf /"}`),
+			routerNone(),
+			chatResponse("understood"),
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithToolCallGuards(&mockToolCallGuard{
+			name:    "arg-checker",
+			results: []*GuardResult{{Decision: GuardDeny, Reason: "destructive command"}},
+		}),
+	)
+
+	result, err := eng.Run(context.Background(), "delete everything")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "understood" {
+		t.Errorf("response = %q, want %q", result.Response, "understood")
+	}
+}
+
+func TestRun_ToolCallGuard_Tripwire(t *testing.T) {
+	// ツール呼び出しガードレールが Tripwire → エラーで即時停止
+	shellTool := newMockTool("shell", "execute command")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{}`),
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithToolCallGuards(&mockToolCallGuard{
+			name:    "tripwire",
+			results: []*GuardResult{{Decision: GuardTripwire, Reason: "exfiltration attempt"}},
+		}),
+	)
+
+	_, err := eng.Run(context.Background(), "do something")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var tw *TripwireError
+	if !errors.As(err, &tw) {
+		t.Fatalf("expected TripwireError, got %T: %v", err, err)
+	}
+	if tw.Source != "tool_call" {
+		t.Errorf("source = %q, want %q", tw.Source, "tool_call")
+	}
+}
+
+func TestRun_OutputGuard_Deny(t *testing.T) {
+	// 出力ガードレールが Deny → 安全な代替メッセージに差し替え
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			chatResponse("sensitive data: SSN 123-45-6789"),
+		},
+	}
+	eng := New(mock,
+		WithOutputGuards(&mockOutputGuard{
+			name:    "pii-filter",
+			results: []*GuardResult{{Decision: GuardDeny, Reason: "PII detected"}},
+		}),
+	)
+
+	result, err := eng.Run(context.Background(), "show me data")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "I cannot provide that response." {
+		t.Errorf("response = %q, want safe fallback", result.Response)
+	}
+	if result.Reason != "output_blocked" {
+		t.Errorf("reason = %q, want %q", result.Reason, "output_blocked")
+	}
+}
+
+func TestRun_OutputGuard_Tripwire(t *testing.T) {
+	// 出力ガードレールが Tripwire → エラーで即時停止
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			chatResponse("leaking secrets"),
+		},
+	}
+	eng := New(mock,
+		WithOutputGuards(&mockOutputGuard{
+			name:    "secret-detector",
+			results: []*GuardResult{{Decision: GuardTripwire, Reason: "secret key leaked"}},
+		}),
+	)
+
+	_, err := eng.Run(context.Background(), "query")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var tw *TripwireError
+	if !errors.As(err, &tw) {
+		t.Fatalf("expected TripwireError, got %T: %v", err, err)
+	}
+	if tw.Source != "output" {
+		t.Errorf("source = %q, want %q", tw.Source, "output")
+	}
+}
+
+func TestRun_NoGuards_BackwardCompat(t *testing.T) {
+	// ガードレール未設定時は Phase 8 以前と同一動作
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			chatResponse("hello"),
+		},
+	}
+	eng := New(mock)
+
+	result, err := eng.Run(context.Background(), "hi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "hello" {
+		t.Errorf("response = %q, want %q", result.Response, "hello")
+	}
+	if result.Reason != "completed" {
+		t.Errorf("reason = %q, want %q", result.Reason, "completed")
+	}
+}
+
+func TestRun_GuardAndPermission_Coexist(t *testing.T) {
+	// パーミッション（allow）+ ツール呼び出しガード（deny）→ ガードが拒否
+	shellTool := newMockTool("shell", "execute command")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("shell", `{}`),
+			routerNone(),
+			chatResponse("blocked by guard"),
+		},
+	}
+	eng := New(mock,
+		WithTools(shellTool),
+		WithPermissionPolicy(PermissionPolicy{
+			AllowRules: []PermissionRule{{ToolName: "shell", Reason: "allowed"}},
+		}),
+		WithToolCallGuards(&mockToolCallGuard{
+			name:    "content-checker",
+			results: []*GuardResult{{Decision: GuardDeny, Reason: "unsafe content"}},
+		}),
+	)
+
+	result, err := eng.Run(context.Background(), "do it")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "blocked by guard" {
+		t.Errorf("response = %q, want %q", result.Response, "blocked by guard")
+	}
+}

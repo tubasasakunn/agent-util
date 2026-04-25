@@ -1,0 +1,22 @@
+[context] 835/8192 tokens (10%)
+[router] ツールを選択中...
+[llm] → gemma-4-E2B-it-Q4_K_M mode=json msgs=[S,U] tools=0
+[llm] ← "```json {   "tool": "read_file",   "arguments": {     "path": "go.mod"   },   "r..." finish=stop 743tok 3.6s
+[router] read_file を選択 | 引数: {
+    "path": "go.mod"
+  }
+[router] 理由: The user wants to know the module name from the go.mod file, so I need to read the file first.
+[audit] tool=read_file decision=allowed readonly=true reason="read_only auto-approve"
+[tool] read_file を実行中...
+[tool] read_file 完了 (27 bytes): module ai-agent
+
+go 1.25.1
+
+[router] ツールを選択中...
+[llm] → gemma-4-E2B-it-Q4_K_M mode=json msgs=[S,U,A,T] tools=0
+[llm] ← "{"tool": "none", "arguments": {}, "reasoning": "The user asked for the module na..." finish=stop 771tok 1.7s
+[router] ツール不要 → 直接応答 (The user asked for the module name from go.mod. The tool output provided 'module ai-agent', which directly answers the request.)
+[chat] 応答を生成中...
+[llm] → gemma-4-E2B-it-Q4_K_M mode=chat msgs=[S,U,A,T] tools=0
+[llm] ← "The module name is **ai-agent**." finish=stop 91tok 0.5s
+[done] 2 turns, 1605 tokens

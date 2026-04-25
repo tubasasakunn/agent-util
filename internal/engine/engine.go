@@ -31,6 +31,8 @@ type Engine struct {
 	maxStepRetries         int
 	maxConsecutiveFailures int
 	verifiers              *VerifierRegistry
+	permChecker            *PermissionChecker // nil なら全許可（後方互換）
+	guards                 *GuardRegistry     // nil ならガードなし（後方互換）
 }
 
 // New は Engine を生成する。
@@ -48,6 +50,31 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 	}
 
 	ctxMgr := agentctx.NewManager(cfg.tokenLimit)
+
+	// パーミッションチェッカーの初期化（ポリシーが設定されている場合のみ）
+	var permChecker *PermissionChecker
+	if cfg.permissionPolicy != nil {
+		auditW := cfg.auditWriter
+		if auditW == nil {
+			auditW = cfg.logWriter
+		}
+		permChecker = NewPermissionChecker(*cfg.permissionPolicy, cfg.userApprover, NewAuditLogger(auditW))
+	}
+
+	// ガードレジストリの初期化
+	var guards *GuardRegistry
+	if len(cfg.inputGuards) > 0 || len(cfg.toolCallGuards) > 0 || len(cfg.outputGuards) > 0 {
+		guards = NewGuardRegistry()
+		for _, g := range cfg.inputGuards {
+			guards.AddInput(g)
+		}
+		for _, g := range cfg.toolCallGuards {
+			guards.AddToolCall(g)
+		}
+		for _, g := range cfg.outputGuards {
+			guards.AddOutput(g)
+		}
+	}
 
 	eng := &Engine{
 		completer:              completer,
@@ -67,6 +94,8 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 		maxStepRetries:         cfg.maxStepRetries,
 		maxConsecutiveFailures: cfg.maxConsecutiveFailures,
 		verifiers:              NewVerifierRegistry(cfg.verifiers...),
+		permChecker:            permChecker,
+		guards:                 guards,
 	}
 
 	// PromptBuilder を初期化
@@ -110,6 +139,18 @@ func (e *Engine) Fork(opts ...Option) *Engine {
 		coordinateMaxChars:     e.coordinateMaxChars,
 		maxStepRetries:         e.maxStepRetries,
 		maxConsecutiveFailures: e.maxConsecutiveFailures,
+	}
+	// パーミッションポリシーを継承（UserApproverはnil: 子はask→deny）
+	if e.permChecker != nil {
+		policy := e.permChecker.Policy()
+		cfg.permissionPolicy = &policy
+		// userApprover は意図的に nil（子Engineは対話的確認不可、fail-closed）
+	}
+	// ガードレールを継承
+	if e.guards != nil {
+		cfg.inputGuards = e.guards.InputGuards()
+		cfg.toolCallGuards = e.guards.ToolCallGuards()
+		cfg.outputGuards = e.guards.OutputGuards()
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -164,6 +205,20 @@ func (e *Engine) logf(format string, args ...any) {
 // Run はユーザー入力を受け取り、エージェントループを実行して結果を返す。
 // メッセージ履歴は Engine に蓄積され、複数回の Run() でマルチターン対話を実現する。
 func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
+	// 入力ガードレール（Phase 9）
+	if e.guards != nil {
+		gr := e.guards.RunInput(ctx, input, e.logf)
+		switch gr.Decision {
+		case GuardTripwire:
+			return nil, &TripwireError{Source: "input", Reason: gr.Reason}
+		case GuardDeny:
+			return &Result{
+				Response: "Input rejected: " + gr.Reason,
+				Reason:   "input_denied",
+			}, nil
+		}
+	}
+
 	e.ctxManager.Add(UserMessage(input))
 	e.logf("[context] %d/%d tokens (%.0f%%)",
 		e.ctxManager.TokenCount(), e.ctxManager.TokenLimit(), e.ctxManager.UsageRatio()*100)
@@ -246,7 +301,7 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 // isFailureReason は連続失敗としてカウントすべき Reason かを判定する。
 func isFailureReason(reason string) bool {
 	switch reason {
-	case "tool_error", "tool_not_found", "verify_failed":
+	case "tool_error", "tool_not_found", "verify_failed", "permission_denied", "guard_blocked":
 		return true
 	default:
 		return false
@@ -303,6 +358,27 @@ func (e *Engine) chatStep(ctx context.Context) (*LoopResult, error) {
 	}
 
 	assistantMsg := resp.Choices[0].Message
+
+	// 出力ガードレール（Phase 9）
+	if e.guards != nil {
+		output := assistantMsg.ContentString()
+		gr := e.guards.RunOutput(ctx, output, e.logf)
+		switch gr.Decision {
+		case GuardTripwire:
+			return nil, &TripwireError{Source: "output", Reason: gr.Reason}
+		case GuardDeny:
+			e.logf("[guard] 出力ブロック: %s", gr.Reason)
+			safeMsg := llm.Message{Role: "assistant", Content: llm.StringPtr("I cannot provide that response.")}
+			e.ctxManager.Add(safeMsg)
+			return &LoopResult{
+				Kind:    Terminal,
+				Reason:  "output_blocked",
+				Message: safeMsg,
+				Usage:   resp.Usage,
+			}, nil
+		}
+	}
+
 	e.ctxManager.Add(assistantMsg)
 
 	return &LoopResult{
@@ -365,7 +441,44 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 		}, nil
 	}
 
-	// 4. ツール実行（workDir があればコンテキストに注入）
+	// 4. パーミッションチェック（Phase 9）
+	if e.permChecker != nil {
+		decision := e.permChecker.Check(ctx, t, rr.Arguments)
+		if decision == PermDenied {
+			e.logf("[permission] %s 拒否", rr.Tool)
+			callID := generateCallID()
+			e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
+			e.ctxManager.Add(ToolResultMessage(callID,
+				fmt.Sprintf("Permission denied: tool %q is not allowed by the current policy.", rr.Tool)))
+			return &LoopResult{
+				Kind:   Continue,
+				Reason: "permission_denied",
+				Usage:  *usage,
+			}, nil
+		}
+	}
+
+	// 5. ツール呼び出しガードレール（Phase 9）
+	if e.guards != nil {
+		gr := e.guards.RunToolCall(ctx, rr.Tool, rr.Arguments, e.logf)
+		switch gr.Decision {
+		case GuardTripwire:
+			return nil, &TripwireError{Source: "tool_call", Reason: gr.Reason}
+		case GuardDeny:
+			e.logf("[guard] %s ブロック: %s", rr.Tool, gr.Reason)
+			callID := generateCallID()
+			e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
+			e.ctxManager.Add(ToolResultMessage(callID,
+				fmt.Sprintf("Blocked by guard: %s", gr.Reason)))
+			return &LoopResult{
+				Kind:   Continue,
+				Reason: "guard_blocked",
+				Usage:  *usage,
+			}, nil
+		}
+	}
+
+	// 6. ツール実行（workDir があればコンテキストに注入）
 	e.logf("[tool] %s を実行中...", rr.Tool)
 	toolCtx := ctx
 	if e.workDir != "" {
@@ -373,7 +486,7 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 	}
 	result, execErr := t.Execute(toolCtx, rr.Arguments)
 
-	// 5. 合成メッセージの構築と履歴への追加
+	// 7. 合成メッセージの構築と履歴への追加
 	callID := generateCallID()
 	e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
 
@@ -399,7 +512,7 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 	}
 	e.ctxManager.Add(ToolResultMessage(callID, resultContent))
 
-	// 6. Verify: 検証ループ（PEVサイクルの V）
+	// 8. Verify: 検証ループ（PEVサイクルの V）
 	// 検証スキップ条件: ツール実行エラー時 / 検証器未登録
 	if reason == "tool_use" && e.verifiers.Len() > 0 {
 		vr := e.verifiers.RunAll(ctx, rr.Tool, rr.Arguments, resultContent, e.logf)

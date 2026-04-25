@@ -30,41 +30,61 @@ func main() {
 		llm.WithAPIKey(envCfg.apiKey),
 		llm.WithLogWriter(os.Stderr),
 	)
-	eng := engine.New(client,
+	// デフォルトパーミッションポリシー: ReadOnly は自動承認、それ以外は ask
+	defaultPolicy := engine.PermissionPolicy{}
+
+	opts := []engine.Option{
 		engine.WithMaxTurns(cfg.maxTurns),
 		engine.WithTokenLimit(envCfg.contextSize),
 		engine.WithTools(
 			readfile.New(),
 		),
 		engine.WithLogWriter(os.Stderr),
-	)
+		engine.WithPermissionPolicy(defaultPolicy),
+	}
 
-	// 引数ありならワンショットモード
+	// 引数ありならワンショットモード（UserApprover なし → ask は fail-closed で拒否）
 	if cfg.prompt != "" {
+		eng := engine.New(client, opts...)
 		result, err := eng.Run(ctx, cfg.prompt)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			handleRunError(err)
 			os.Exit(1)
 		}
 		fmt.Println(result.Response)
 		return
 	}
 
-	// 引数なしならREPLモード
-	if err := runREPL(ctx, eng); err != nil {
+	// 引数なしならREPLモード（StdinApprover でユーザー確認）
+	// 重要: stdinの *bufio.Reader をREPLとApproverで共有する
+	stdinReader := bufio.NewReader(os.Stdin)
+	opts = append(opts, engine.WithUserApprover(NewStdinApprover(stdinReader, os.Stderr)))
+	eng := engine.New(client, opts...)
+	if err := runREPL(ctx, eng, stdinReader); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func runREPL(ctx context.Context, eng *engine.Engine) error {
-	scanner := bufio.NewScanner(os.Stdin)
+// handleRunError はRun()のエラーを分類して表示する。
+func handleRunError(err error) {
+	var tw *engine.TripwireError
+	if errors.As(err, &tw) {
+		fmt.Fprintf(os.Stderr, "[TRIPWIRE] %s: %s\n", tw.Source, tw.Reason)
+		fmt.Fprintln(os.Stderr, "Agent stopped for safety.")
+		return
+	}
+	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+}
+
+func runREPL(ctx context.Context, eng *engine.Engine, reader *bufio.Reader) error {
 	for {
 		fmt.Fprint(os.Stderr, "> ")
-		if !scanner.Scan() {
+		rawLine, err := reader.ReadString('\n')
+		if err != nil {
 			break // EOF
 		}
-		line := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(rawLine)
 		if line == "" {
 			continue
 		}
@@ -81,13 +101,16 @@ func runREPL(ctx context.Context, eng *engine.Engine) error {
 				fmt.Fprintln(os.Stderr, "\n(interrupted)")
 				return nil
 			}
+			var tw *engine.TripwireError
+			if errors.As(err, &tw) {
+				fmt.Fprintf(os.Stderr, "\n[TRIPWIRE] %s: %s\n", tw.Source, tw.Reason)
+				fmt.Fprintln(os.Stderr, "Agent loop stopped for safety.")
+				return nil
+			}
 			return fmt.Errorf("run: %w", err)
 		}
 		fmt.Println(result.Response)
 		fmt.Println()
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read stdin: %w", err)
 	}
 	return nil
 }

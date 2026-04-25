@@ -92,6 +92,16 @@ func TestClassifyError(t *testing.T) {
 			want: ErrClassFatal,
 		},
 		{
+			name: "tripwire error",
+			err:  &TripwireError{Source: "input", Reason: "injection detected"},
+			want: ErrClassFatal,
+		},
+		{
+			name: "wrapped tripwire error",
+			err:  fmt.Errorf("guard: %w", &TripwireError{Source: "tool_call", Reason: "exfiltration"}),
+			want: ErrClassFatal,
+		},
+		{
 			name: "unknown error",
 			err:  errors.New("something unexpected"),
 			want: ErrClassFatal,
@@ -120,6 +130,26 @@ func TestRouterParseError_Unwrap(t *testing.T) {
 	var target *RouterParseError
 	if !errors.As(wrapped, &target) {
 		t.Error("wrapped RouterParseError should be extractable with errors.As")
+	}
+}
+
+func TestTripwireError(t *testing.T) {
+	tw := &TripwireError{Source: "input", Reason: "injection detected"}
+
+	// Error() メッセージの確認
+	want := "tripwire [input]: injection detected"
+	if tw.Error() != want {
+		t.Errorf("Error() = %q, want %q", tw.Error(), want)
+	}
+
+	// errors.As で抽出可能か
+	wrapped := fmt.Errorf("run: %w", tw)
+	var target *TripwireError
+	if !errors.As(wrapped, &target) {
+		t.Error("wrapped TripwireError should be extractable with errors.As")
+	}
+	if target.Source != "input" {
+		t.Errorf("Source = %q, want %q", target.Source, "input")
 	}
 }
 

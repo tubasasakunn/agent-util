@@ -1,0 +1,9 @@
+[context] 841/8192 tokens (10%)
+[router] ツールを選択中...
+[llm] → gemma-4-E2B-it-Q4_K_M mode=json msgs=[S,U] tools=0
+[llm] ← "{"tool": "none", "arguments": {}, "reasoning": "The question asks for a simple a..." finish=stop 710tok 2.3s
+[router] ツール不要 → 直接応答 (The question asks for a simple arithmetic calculation that can be answered directly.)
+[chat] 応答を生成中...
+[llm] → gemma-4-E2B-it-Q4_K_M mode=chat msgs=[S,U] tools=0
+[llm] ← "5" finish=stop 36tok 0.1s
+[done] 1 turns, 746 tokens
