@@ -11,21 +11,24 @@ import (
 type Option func(*engineConfig)
 
 type engineConfig struct {
-	maxTurns           int
-	systemPrompt       string
-	tools              []tool.Tool
-	logWriter          io.Writer
-	tokenLimit         int
-	compaction         *agentctx.CompactionConfig
-	delegateEnabled    bool
-	delegateMaxChars   int
-	workDir            string
-	coordinatorEnabled bool
-	coordinateMaxChars int
-	dynamicSections    []Section
-	reminderThreshold  int
-	memoryEntries      []MemoryEntry
-	toolScope          *ToolScope
+	maxTurns               int
+	systemPrompt           string
+	tools                  []tool.Tool
+	logWriter              io.Writer
+	tokenLimit             int
+	compaction             *agentctx.CompactionConfig
+	delegateEnabled        bool
+	delegateMaxChars       int
+	workDir                string
+	coordinatorEnabled     bool
+	coordinateMaxChars     int
+	dynamicSections        []Section
+	reminderThreshold      int
+	memoryEntries          []MemoryEntry
+	toolScope              *ToolScope
+	maxStepRetries         int
+	maxConsecutiveFailures int
+	verifiers              []Verifier
 }
 
 const defaultSystemPrompt = "You are a helpful assistant."
@@ -34,14 +37,16 @@ const defaultReminderThreshold = 8
 
 func defaultEngineConfig() engineConfig {
 	return engineConfig{
-		maxTurns:           10,
-		systemPrompt:       defaultSystemPrompt,
-		tokenLimit:         8192,
-		delegateEnabled:    true,
-		delegateMaxChars:   1500,
-		coordinatorEnabled: true,
-		coordinateMaxChars: 3000,
-		reminderThreshold:  defaultReminderThreshold,
+		maxTurns:               10,
+		systemPrompt:           defaultSystemPrompt,
+		tokenLimit:             8192,
+		delegateEnabled:        true,
+		delegateMaxChars:       1500,
+		coordinatorEnabled:     true,
+		coordinateMaxChars:     3000,
+		reminderThreshold:      defaultReminderThreshold,
+		maxStepRetries:         2,
+		maxConsecutiveFailures: 3,
 	}
 }
 
@@ -144,4 +149,25 @@ func WithMemoryEntries(entries ...MemoryEntry) Option {
 // nil（デフォルト）の場合は全ツールを提示する。
 func WithToolScope(scope ToolScope) Option {
 	return func(c *engineConfig) { c.toolScope = &scope }
+}
+
+// WithMaxStepRetries は step() の一時的エラーのリトライ上限を設定する。
+// デフォルトは 2。LLMクライアント層のリトライとは別レイヤー。
+func WithMaxStepRetries(n int) Option {
+	return func(c *engineConfig) { c.maxStepRetries = n }
+}
+
+// WithMaxConsecutiveFailures は連続失敗の上限を設定する。
+// ツール実行エラー・検証失敗が連続した場合に安全停止する。
+// デフォルトは 3。
+func WithMaxConsecutiveFailures(n int) Option {
+	return func(c *engineConfig) { c.maxConsecutiveFailures = n }
+}
+
+// WithVerifiers は検証器を設定する。
+// ツール実行後に全検証器が順に実行され、失敗時は自動修正ループに入る。
+func WithVerifiers(vs ...Verifier) Option {
+	return func(c *engineConfig) {
+		c.verifiers = append(c.verifiers, vs...)
+	}
 }

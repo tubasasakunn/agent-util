@@ -31,7 +31,7 @@ func (e *Engine) routerStep(ctx context.Context) (*routerResponse, *llm.Usage, e
 
 	var rr routerResponse
 	if err := llm.ParseContent(resp, &rr); err != nil {
-		return nil, &resp.Usage, fmt.Errorf("router parse: %w", err)
+		return nil, &resp.Usage, &RouterParseError{Cause: err}
 	}
 
 	if rr.Tool == "" {

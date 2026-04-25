@@ -6,8 +6,12 @@ import (
 	"ai-agent/internal/llm"
 )
 
-// ErrMaxTurnsReached はターン数上限に達した場合のエラー。
-var ErrMaxTurnsReached = errors.New("max turns reached")
+var (
+	// ErrMaxTurnsReached はターン数上限に達した場合のエラー。
+	ErrMaxTurnsReached = errors.New("max turns reached")
+	// ErrMaxStepRetries はstepリトライ上限に達した場合のエラー。
+	ErrMaxStepRetries = errors.New("max step retries exceeded")
+)
 
 // ResultKind はエージェントループの継続・終了を表す判別子。
 type ResultKind int

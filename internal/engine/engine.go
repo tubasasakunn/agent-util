@@ -13,21 +13,24 @@ import (
 
 // Engine はエージェントループを管理する。
 type Engine struct {
-	completer          llm.Completer
-	ctxManager         *agentctx.Manager
-	maxTurns           int
-	systemPrompt       string
-	registry           *Registry
-	logw               io.Writer
-	compaction         *agentctx.CompactionConfig
-	delegateEnabled    bool
-	delegateMaxChars   int
-	workDir            string
-	coordinatorEnabled bool
-	coordinateMaxChars int
-	promptBuilder      *PromptBuilder
-	reminderThreshold  int
-	toolScope          *ToolScope
+	completer              llm.Completer
+	ctxManager             *agentctx.Manager
+	maxTurns               int
+	systemPrompt           string
+	registry               *Registry
+	logw                   io.Writer
+	compaction             *agentctx.CompactionConfig
+	delegateEnabled        bool
+	delegateMaxChars       int
+	workDir                string
+	coordinatorEnabled     bool
+	coordinateMaxChars     int
+	promptBuilder          *PromptBuilder
+	reminderThreshold      int
+	toolScope              *ToolScope
+	maxStepRetries         int
+	maxConsecutiveFailures int
+	verifiers              *VerifierRegistry
 }
 
 // New は Engine を生成する。
@@ -47,20 +50,23 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 	ctxMgr := agentctx.NewManager(cfg.tokenLimit)
 
 	eng := &Engine{
-		completer:          completer,
-		ctxManager:         ctxMgr,
-		maxTurns:           cfg.maxTurns,
-		systemPrompt:       cfg.systemPrompt,
-		registry:           reg,
-		logw:               cfg.logWriter,
-		compaction:         cfg.compaction,
-		delegateEnabled:    cfg.delegateEnabled,
-		delegateMaxChars:   cfg.delegateMaxChars,
-		workDir:            cfg.workDir,
-		coordinatorEnabled: cfg.coordinatorEnabled,
-		coordinateMaxChars: cfg.coordinateMaxChars,
-		reminderThreshold:  cfg.reminderThreshold,
-		toolScope:          cfg.toolScope,
+		completer:              completer,
+		ctxManager:             ctxMgr,
+		maxTurns:               cfg.maxTurns,
+		systemPrompt:           cfg.systemPrompt,
+		registry:               reg,
+		logw:                   cfg.logWriter,
+		compaction:             cfg.compaction,
+		delegateEnabled:        cfg.delegateEnabled,
+		delegateMaxChars:       cfg.delegateMaxChars,
+		workDir:                cfg.workDir,
+		coordinatorEnabled:     cfg.coordinatorEnabled,
+		coordinateMaxChars:     cfg.coordinateMaxChars,
+		reminderThreshold:      cfg.reminderThreshold,
+		toolScope:              cfg.toolScope,
+		maxStepRetries:         cfg.maxStepRetries,
+		maxConsecutiveFailures: cfg.maxConsecutiveFailures,
+		verifiers:              NewVerifierRegistry(cfg.verifiers...),
 	}
 
 	// PromptBuilder を初期化
@@ -91,17 +97,19 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 func (e *Engine) Fork(opts ...Option) *Engine {
 	// 親の設定をベースに子Engineの設定を構築
 	cfg := engineConfig{
-		maxTurns:           e.maxTurns,
-		systemPrompt:       e.systemPrompt,
-		tools:              e.registry.Tools(),
-		logWriter:          e.logw,
-		tokenLimit:         e.ctxManager.TokenLimit(),
-		compaction:         e.compaction,
-		delegateEnabled:    false, // ネスト再帰防止
-		delegateMaxChars:   e.delegateMaxChars,
-		workDir:            e.workDir,
-		coordinatorEnabled: false, // ネスト再帰防止
-		coordinateMaxChars: e.coordinateMaxChars,
+		maxTurns:               e.maxTurns,
+		systemPrompt:           e.systemPrompt,
+		tools:                  e.registry.Tools(),
+		logWriter:              e.logw,
+		tokenLimit:             e.ctxManager.TokenLimit(),
+		compaction:             e.compaction,
+		delegateEnabled:        false, // ネスト再帰防止
+		delegateMaxChars:       e.delegateMaxChars,
+		workDir:                e.workDir,
+		coordinatorEnabled:     false, // ネスト再帰防止
+		coordinateMaxChars:     e.coordinateMaxChars,
+		maxStepRetries:         e.maxStepRetries,
+		maxConsecutiveFailures: e.maxConsecutiveFailures,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -118,6 +126,8 @@ func (e *Engine) Fork(opts ...Option) *Engine {
 		WithWorkDir(cfg.workDir),
 		WithCoordinatorEnabled(cfg.coordinatorEnabled),
 		WithCoordinateMaxChars(cfg.coordinateMaxChars),
+		WithMaxStepRetries(cfg.maxStepRetries),
+		WithMaxConsecutiveFailures(cfg.maxConsecutiveFailures),
 		withOptionalCompaction(cfg.compaction),
 	)
 }
@@ -159,6 +169,9 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 		e.ctxManager.TokenCount(), e.ctxManager.TokenLimit(), e.ctxManager.UsageRatio()*100)
 
 	var totalUsage llm.Usage
+	var stepRetries int
+	var consecutiveFailures int
+
 	for turn := 0; turn < e.maxTurns; turn++ {
 		select {
 		case <-ctx.Done():
@@ -168,8 +181,33 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 
 		lr, err := e.step(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("turn %d: %w", turn, err)
+			class := classifyError(err)
+			switch class {
+			case ErrClassTransient:
+				if stepRetries >= e.maxStepRetries {
+					return nil, fmt.Errorf("turn %d: %w: %w", turn, ErrMaxStepRetries, err)
+				}
+				stepRetries++
+				e.logf("[retry] transient error (attempt %d/%d): %s",
+					stepRetries, e.maxStepRetries, err)
+				wait := calcStepBackoff(stepRetries - 1)
+				if err := sleepWithContext(ctx, wait); err != nil {
+					return nil, err
+				}
+				continue
+			case ErrClassUserFixable:
+				e.logf("[error] user fixable: %s", err)
+				return &Result{
+					Response: fmt.Sprintf("User intervention required: %s", err),
+					Reason:   "user_fixable",
+					Usage:    totalUsage,
+					Turns:    turn + 1,
+				}, nil
+			default: // ErrClassFatal, ErrClassLLMRecoverable
+				return nil, fmt.Errorf("turn %d: %w", turn, err)
+			}
 		}
+		stepRetries = 0 // step 成功時にリセット
 
 		totalUsage.PromptTokens += lr.Usage.PromptTokens
 		totalUsage.CompletionTokens += lr.Usage.CompletionTokens
@@ -185,10 +223,34 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 				Turns:    turn + 1,
 			}, nil
 		case Continue:
+			if isFailureReason(lr.Reason) {
+				consecutiveFailures++
+				if consecutiveFailures >= e.maxConsecutiveFailures {
+					e.logf("[safety] consecutive failures (%d) reached limit", consecutiveFailures)
+					return &Result{
+						Response: fmt.Sprintf("Stopped: %d consecutive failures", consecutiveFailures),
+						Reason:   "max_consecutive_failures",
+						Usage:    totalUsage,
+						Turns:    turn + 1,
+					}, nil
+				}
+			} else {
+				consecutiveFailures = 0
+			}
 			continue
 		}
 	}
 	return nil, ErrMaxTurnsReached
+}
+
+// isFailureReason は連続失敗としてカウントすべき Reason かを判定する。
+func isFailureReason(reason string) bool {
+	switch reason {
+	case "tool_error", "tool_not_found", "verify_failed":
+		return true
+	default:
+		return false
+	}
 }
 
 // step は1ターンのモデル呼び出しを実行し、LoopResult を返す。
@@ -316,15 +378,19 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 	e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
 
 	var resultContent string
+	var reason string
 	switch {
 	case execErr != nil:
 		resultContent = fmt.Sprintf("Error executing tool %q: %s", rr.Tool, execErr.Error())
+		reason = "tool_error"
 		e.logf("[tool] %s 実行エラー: %s", rr.Tool, execErr.Error())
 	case result.IsError:
 		resultContent = fmt.Sprintf("Error: %s", result.Content)
+		reason = "tool_error"
 		e.logf("[tool] %s エラー: %s", rr.Tool, result.Content)
 	default:
 		resultContent = result.Content
+		reason = "tool_use"
 		preview := resultContent
 		if len(preview) > 100 {
 			preview = preview[:100] + "..."
@@ -333,9 +399,26 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 	}
 	e.ctxManager.Add(ToolResultMessage(callID, resultContent))
 
+	// 6. Verify: 検証ループ（PEVサイクルの V）
+	// 検証スキップ条件: ツール実行エラー時 / 検証器未登録
+	if reason == "tool_use" && e.verifiers.Len() > 0 {
+		vr := e.verifiers.RunAll(ctx, rr.Tool, rr.Arguments, resultContent, e.logf)
+		if !vr.Passed {
+			e.logf("[verify] %s 検証失敗: %s", rr.Tool, vr.Summary)
+			verifyMsg := fmt.Sprintf("[Verification Failed]\n%s\nPlease fix the issues and try again.", vr.Summary)
+			e.ctxManager.Add(UserMessage(verifyMsg))
+			return &LoopResult{
+				Kind:   Continue,
+				Reason: "verify_failed",
+				Usage:  *usage,
+			}, nil
+		}
+		e.logf("[verify] %s 検証パス", rr.Tool)
+	}
+
 	return &LoopResult{
 		Kind:   Continue,
-		Reason: "tool_use",
+		Reason: reason,
 		Usage:  *usage,
 	}, nil
 }

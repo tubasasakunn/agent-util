@@ -105,6 +105,18 @@ func newMockTool(name, desc string) *mockTool {
 	}
 }
 
+// routerJSON はルーターステップのJSON応答を生成する。
+func routerJSON(toolName string, args string) *llm.ChatResponse {
+	content := fmt.Sprintf(`{"tool":"%s","arguments":%s,"reasoning":"test"}`, toolName, args)
+	return makeResponse(content, llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15})
+}
+
+// routerNone はルーターが "none" を返す応答を生成する。
+func routerNone() *llm.ChatResponse {
+	return makeResponse(`{"tool":"none","arguments":{},"reasoning":"direct answer"}`,
+		llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15})
+}
+
 // concurrentMockCompleter はスレッドセーフな mockCompleter。
 // Coordinator テストなど並列呼び出し時に使用する。
 type concurrentMockCompleter struct {

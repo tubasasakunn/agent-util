@@ -133,17 +133,24 @@ func TestRun_APIError(t *testing.T) {
 	}
 }
 
-func TestRun_EmptyResponse(t *testing.T) {
+func TestRun_EmptyResponse_RetriedThenFails(t *testing.T) {
+	// EmptyResponse は Transient に分類される。
+	// maxStepRetries=2 なのでリトライ後に ErrMaxStepRetries で停止する。
 	mock := &mockCompleter{
 		responses: []*llm.ChatResponse{
-			{Choices: []llm.Choice{}},
+			{Choices: []llm.Choice{}}, // 1回目: empty
+			{Choices: []llm.Choice{}}, // リトライ1回目: empty
+			{Choices: []llm.Choice{}}, // リトライ2回目: empty → 上限到達
 		},
 	}
 	eng := New(mock)
 
 	_, err := eng.Run(context.Background(), "hello")
+	if !errors.Is(err, ErrMaxStepRetries) {
+		t.Errorf("error = %v, want ErrMaxStepRetries", err)
+	}
 	if !errors.Is(err, llm.ErrEmptyResponse) {
-		t.Errorf("error = %v, want ErrEmptyResponse", err)
+		t.Errorf("error should wrap ErrEmptyResponse, got %v", err)
 	}
 }
 
@@ -646,5 +653,337 @@ func TestBuildMessages_ReminderDisabled(t *testing.T) {
 		if m.ContentString() == "[System Reminder] test" {
 			t.Error("reminder should not be inserted when threshold is 0")
 		}
+	}
+}
+
+// --- Phase 8a: Transient Error Retry Tests ---
+
+func TestRun_RouterParseError_RetriedThenSucceeds(t *testing.T) {
+	// ルーターが1回目にパース不可能なJSON、2回目に正しいJSONを返す。
+	// Transient エラーとしてリトライされ、最終的に成功する。
+	echoTool := newMockTool("echo", "echoes input")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			makeResponse("not valid json at all", llm.Usage{}), // call 0: router parse fails
+			routerNone(),        // call 1: router succeeds (none)
+			chatResponse("ok!"), // call 2: chat response
+		},
+	}
+	eng := New(mock, WithTools(echoTool))
+
+	result, err := eng.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "ok!" {
+		t.Errorf("response = %q, want %q", result.Response, "ok!")
+	}
+	if mock.calls != 3 {
+		t.Errorf("calls = %d, want 3", mock.calls)
+	}
+}
+
+func TestRun_RouterParseError_MaxRetriesExceeded(t *testing.T) {
+	// ルーターが毎回パース不可能なJSONを返す。
+	// maxStepRetries=2 なので3回目で ErrMaxStepRetries で停止する。
+	echoTool := newMockTool("echo", "echoes input")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			makeResponse("bad json 1", llm.Usage{}), // call 0: fails
+			makeResponse("bad json 2", llm.Usage{}), // call 1: retry 1 fails
+			makeResponse("bad json 3", llm.Usage{}), // call 2: retry 2 fails → max retries
+		},
+	}
+	eng := New(mock, WithTools(echoTool))
+
+	_, err := eng.Run(context.Background(), "hello")
+	if !errors.Is(err, ErrMaxStepRetries) {
+		t.Errorf("error = %v, want ErrMaxStepRetries", err)
+	}
+}
+
+func TestRun_UserFixableError(t *testing.T) {
+	// API 401 エラーは UserFixable に分類され、Result で通知される。
+	mock := &mockCompleter{
+		err: &llm.APIError{StatusCode: 401, Body: "unauthorized"},
+	}
+	eng := New(mock)
+
+	result, err := eng.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v (should be returned as Result, not error)", err)
+	}
+	if result.Reason != "user_fixable" {
+		t.Errorf("reason = %q, want %q", result.Reason, "user_fixable")
+	}
+}
+
+func TestRun_EmptyResponse_RetriedThenSucceeds(t *testing.T) {
+	// EmptyResponse は Transient。1回目が空、2回目で成功。
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			{Choices: []llm.Choice{}},        // call 0: empty → retry
+			chatResponse("recovered!"),        // call 1: success
+		},
+	}
+	eng := New(mock)
+
+	result, err := eng.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "recovered!" {
+		t.Errorf("response = %q, want %q", result.Response, "recovered!")
+	}
+}
+
+// --- Phase 8b: Consecutive Failure Cap Tests ---
+
+func TestRun_ConsecutiveFailures_StopsAtLimit(t *testing.T) {
+	// ツールが3回連続でエラーを返す → maxConsecutiveFailures=3 で安全停止。
+	failTool := newMockTool("fail_tool", "always fails")
+	failTool.executeFunc = func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+		return tool.Result{}, errors.New("tool failed")
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("fail_tool", `{}`), // turn 0: router → fail_tool
+			routerJSON("fail_tool", `{}`), // turn 1: router → fail_tool
+			routerJSON("fail_tool", `{}`), // turn 2: router → fail_tool → cap reached
+		},
+	}
+	eng := New(mock, WithTools(failTool), WithMaxConsecutiveFailures(3))
+
+	result, err := eng.Run(context.Background(), "do something")
+	if err != nil {
+		t.Fatalf("unexpected error: %v (should be safe stop, not error)", err)
+	}
+	if result.Reason != "max_consecutive_failures" {
+		t.Errorf("reason = %q, want %q", result.Reason, "max_consecutive_failures")
+	}
+}
+
+func TestRun_ConsecutiveFailures_ResetsOnSuccess(t *testing.T) {
+	// 2回失敗 → 1回成功 → カウンターリセット → さらに2回失敗でもキャップに達しない。
+	callCount := 0
+	mixedTool := newMockTool("mixed_tool", "sometimes fails")
+	mixedTool.executeFunc = func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+		callCount++
+		if callCount == 3 { // 3回目だけ成功
+			return tool.Result{Content: "success"}, nil
+		}
+		return tool.Result{}, errors.New("tool failed")
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("mixed_tool", `{}`), // turn 0: fail (consecutive=1)
+			routerJSON("mixed_tool", `{}`), // turn 1: fail (consecutive=2)
+			routerJSON("mixed_tool", `{}`), // turn 2: success (consecutive=0)
+			routerJSON("mixed_tool", `{}`), // turn 3: fail (consecutive=1)
+			routerJSON("mixed_tool", `{}`), // turn 4: fail (consecutive=2)
+			routerNone(),                   // turn 5: none → chat
+			chatResponse("done"),           // turn 5: final answer
+		},
+	}
+	eng := New(mock, WithTools(mixedTool), WithMaxConsecutiveFailures(3), WithMaxTurns(10))
+
+	result, err := eng.Run(context.Background(), "do something")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Reason != "completed" {
+		t.Errorf("reason = %q, want %q", result.Reason, "completed")
+	}
+}
+
+func TestRun_ConsecutiveFailures_ToolNotFound(t *testing.T) {
+	// 存在しないツールへのルーティングも連続失敗としてカウントされる。
+	echoTool := newMockTool("echo", "echoes input")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("nonexistent", `{}`), // turn 0: tool_not_found (consecutive=1)
+			routerJSON("nonexistent", `{}`), // turn 1: tool_not_found (consecutive=2)
+			routerJSON("nonexistent", `{}`), // turn 2: tool_not_found (consecutive=3) → cap
+		},
+	}
+	eng := New(mock, WithTools(echoTool), WithMaxConsecutiveFailures(3))
+
+	result, err := eng.Run(context.Background(), "use nonexistent tool")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Reason != "max_consecutive_failures" {
+		t.Errorf("reason = %q, want %q", result.Reason, "max_consecutive_failures")
+	}
+}
+
+func TestRun_ToolError_ReasonIsSeparated(t *testing.T) {
+	// ツール実行エラー時の Reason が "tool_error" になることを確認。
+	failTool := newMockTool("fail_tool", "always fails")
+	failTool.executeFunc = func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+		return tool.Result{}, errors.New("broken")
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("fail_tool", `{}`), // router → fail_tool (error)
+			routerNone(),                  // router → none
+			chatResponse("handled it"),    // final
+		},
+	}
+	eng := New(mock, WithTools(failTool))
+
+	result, err := eng.Run(context.Background(), "try this")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "handled it" {
+		t.Errorf("response = %q, want %q", result.Response, "handled it")
+	}
+}
+
+// --- Phase 8c: PEV Cycle / Verification Tests ---
+
+func TestRun_VerifyPass(t *testing.T) {
+	// 検証パス → 通常通り完了。
+	echoTool := newMockTool("echo", "echoes input")
+	v := &mockVerifier{
+		name:    "checker",
+		results: []*VerifyResult{{Passed: true, Summary: "ok"}},
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("echo", `{}`), // router → echo
+			routerNone(),             // router → none
+			chatResponse("done"),     // final
+		},
+	}
+	eng := New(mock, WithTools(echoTool), WithVerifiers(v))
+
+	result, err := eng.Run(context.Background(), "echo test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "done" {
+		t.Errorf("response = %q, want %q", result.Response, "done")
+	}
+}
+
+func TestRun_VerifyFail_ThenFix(t *testing.T) {
+	// 1回目: 検証失敗 → LLMが修正 → 2回目: 検証パス。
+	echoTool := newMockTool("echo", "echoes input")
+	v := &mockVerifier{
+		name: "checker",
+		results: []*VerifyResult{
+			{Passed: false, Summary: "output is wrong"},
+			{Passed: true, Summary: "ok"},
+		},
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("echo", `{}`), // turn 0: router → echo → verify fails
+			routerJSON("echo", `{}`), // turn 1: router → echo (retry) → verify passes
+			routerNone(),             // turn 2: router → none
+			chatResponse("fixed!"),   // turn 2: final
+		},
+	}
+	eng := New(mock, WithTools(echoTool), WithVerifiers(v))
+
+	result, err := eng.Run(context.Background(), "do it right")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "fixed!" {
+		t.Errorf("response = %q, want %q", result.Response, "fixed!")
+	}
+}
+
+func TestRun_VerifyFail_ConsecutiveCap(t *testing.T) {
+	// 検証失敗が連続して maxConsecutiveFailures に達する → 安全停止。
+	echoTool := newMockTool("echo", "echoes input")
+	v := &mockVerifier{
+		name: "strict",
+		results: []*VerifyResult{
+			{Passed: false, Summary: "bad 1"},
+			{Passed: false, Summary: "bad 2"},
+			{Passed: false, Summary: "bad 3"},
+		},
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("echo", `{}`), // turn 0: verify_failed (consecutive=1)
+			routerJSON("echo", `{}`), // turn 1: verify_failed (consecutive=2)
+			routerJSON("echo", `{}`), // turn 2: verify_failed (consecutive=3) → cap
+		},
+	}
+	eng := New(mock, WithTools(echoTool), WithVerifiers(v), WithMaxConsecutiveFailures(3))
+
+	result, err := eng.Run(context.Background(), "keep failing")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Reason != "max_consecutive_failures" {
+		t.Errorf("reason = %q, want %q", result.Reason, "max_consecutive_failures")
+	}
+}
+
+func TestRun_VerifySkippedOnToolError(t *testing.T) {
+	// ツール実行エラー時は検証がスキップされる。
+	failTool := newMockTool("fail_tool", "always fails")
+	failTool.executeFunc = func(_ context.Context, _ json.RawMessage) (tool.Result, error) {
+		return tool.Result{}, errors.New("broken")
+	}
+	v := &mockVerifier{
+		name: "should_not_run",
+		results: []*VerifyResult{
+			{Passed: false, Summary: "this should never be checked"},
+		},
+	}
+
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("fail_tool", `{}`), // router → fail_tool (error) → verify skipped
+			routerNone(),                  // router → none
+			chatResponse("ok"),            // final
+		},
+	}
+	eng := New(mock, WithTools(failTool), WithVerifiers(v))
+
+	result, err := eng.Run(context.Background(), "try")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "ok" {
+		t.Errorf("response = %q, want %q", result.Response, "ok")
+	}
+	// 検証器は呼ばれないはず
+	if v.calls != 0 {
+		t.Errorf("verifier calls = %d, want 0 (should be skipped on tool error)", v.calls)
+	}
+}
+
+func TestRun_NoVerifiers_NoEffect(t *testing.T) {
+	// 検証器未登録の場合はVerifyステップが実行されない。
+	echoTool := newMockTool("echo", "echoes input")
+	mock := &mockCompleter{
+		responses: []*llm.ChatResponse{
+			routerJSON("echo", `{}`),
+			routerNone(),
+			chatResponse("done"),
+		},
+	}
+	eng := New(mock, WithTools(echoTool)) // WithVerifiers なし
+
+	result, err := eng.Run(context.Background(), "echo test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Response != "done" {
+		t.Errorf("response = %q, want %q", result.Response, "done")
 	}
 }
