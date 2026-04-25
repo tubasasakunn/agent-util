@@ -97,3 +97,80 @@ func TestRegistry_FormatForPrompt_Empty(t *testing.T) {
 		t.Errorf("FormatForPrompt on empty registry = %q, want empty", got)
 	}
 }
+
+func TestScopedFormatForPrompt_MaxTools(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(newMockTool("alpha", "A tool"))
+	reg.Register(newMockTool("beta", "B tool"))
+	reg.Register(newMockTool("gamma", "G tool"))
+
+	got := reg.ScopedFormatForPrompt(ToolScope{MaxTools: 2})
+
+	if !strings.Contains(got, "### alpha") {
+		t.Error("should contain alpha (first registered)")
+	}
+	if !strings.Contains(got, "### beta") {
+		t.Error("should contain beta (second registered)")
+	}
+	if strings.Contains(got, "### gamma") {
+		t.Error("should NOT contain gamma (exceeds MaxTools)")
+	}
+}
+
+func TestScopedFormatForPrompt_IncludeAlways(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(newMockTool("alpha", "A tool"))
+	reg.Register(newMockTool("beta", "B tool"))
+	reg.Register(newMockTool("gamma", "G tool"))
+
+	got := reg.ScopedFormatForPrompt(ToolScope{
+		MaxTools:      2,
+		IncludeAlways: map[string]bool{"gamma": true},
+	})
+
+	if !strings.Contains(got, "### gamma") {
+		t.Error("IncludeAlways tool should always be present")
+	}
+	// gamma + 残り枠1 = alpha
+	if !strings.Contains(got, "### alpha") {
+		t.Error("should fill remaining slots with first registered")
+	}
+	if strings.Contains(got, "### beta") {
+		t.Error("should NOT contain beta (bumped by IncludeAlways)")
+	}
+}
+
+func TestScopedFormatForPrompt_ZeroMaxTools(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(newMockTool("alpha", "A tool"))
+	reg.Register(newMockTool("beta", "B tool"))
+
+	// MaxTools=0 は無制限
+	got := reg.ScopedFormatForPrompt(ToolScope{MaxTools: 0})
+
+	if !strings.Contains(got, "### alpha") {
+		t.Error("should contain alpha")
+	}
+	if !strings.Contains(got, "### beta") {
+		t.Error("should contain beta")
+	}
+}
+
+func TestScopedFormatForPrompt_MaxToolsExceedsTotal(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(newMockTool("alpha", "A tool"))
+
+	got := reg.ScopedFormatForPrompt(ToolScope{MaxTools: 10})
+
+	if !strings.Contains(got, "### alpha") {
+		t.Error("should contain all tools when MaxTools exceeds total")
+	}
+}
+
+func TestScopedFormatForPrompt_Empty(t *testing.T) {
+	reg := NewRegistry()
+	got := reg.ScopedFormatForPrompt(ToolScope{MaxTools: 3})
+	if got != "" {
+		t.Errorf("empty registry scoped = %q, want empty", got)
+	}
+}

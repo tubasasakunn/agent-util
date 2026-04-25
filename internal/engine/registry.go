@@ -61,15 +61,59 @@ func (r *Registry) Definitions() []tool.Definition {
 	return defs
 }
 
+// ToolScope はツールスコーピングの設定。
+type ToolScope struct {
+	// MaxTools はルーターに提示するツールの最大数。0 は無制限。
+	MaxTools int
+	// IncludeAlways は常に含めるツール名のセット。MaxTools 制限内で優先される。
+	IncludeAlways map[string]bool
+}
+
 // FormatForPrompt はルーターのシステムプロンプトに埋め込むツール一覧テキストを生成する。
 func (r *Registry) FormatForPrompt() string {
-	if len(r.order) == 0 {
+	return r.formatDefs(r.Definitions())
+}
+
+// ScopedFormatForPrompt はスコープに基づいてフィルタしたツール一覧テキストを生成する。
+func (r *Registry) ScopedFormatForPrompt(scope ToolScope) string {
+	defs := r.Definitions()
+	if scope.MaxTools <= 0 || scope.MaxTools >= len(defs) {
+		return r.formatDefs(defs)
+	}
+
+	// IncludeAlways を先に確保
+	var always, rest []tool.Definition
+	for _, d := range defs {
+		if scope.IncludeAlways[d.Name] {
+			always = append(always, d)
+		} else {
+			rest = append(rest, d)
+		}
+	}
+
+	// 残りの枠を登録順で埋める
+	remaining := scope.MaxTools - len(always)
+	if remaining < 0 {
+		remaining = 0
+	}
+	if remaining > len(rest) {
+		remaining = len(rest)
+	}
+
+	result := make([]tool.Definition, 0, scope.MaxTools)
+	result = append(result, always...)
+	result = append(result, rest[:remaining]...)
+	return r.formatDefs(result)
+}
+
+// formatDefs はツール定義リストをプロンプト用テキストに変換する。
+func (r *Registry) formatDefs(defs []tool.Definition) string {
+	if len(defs) == 0 {
 		return ""
 	}
 	var sb strings.Builder
 	sb.WriteString("## Available Tools\n\n")
-	for _, name := range r.order {
-		def := tool.DefinitionOf(r.tools[name])
+	for _, def := range defs {
 		sb.WriteString(fmt.Sprintf("### %s\n", def.Name))
 		sb.WriteString(fmt.Sprintf("%s\n", def.Description))
 		sb.WriteString("Parameters:\n```json\n")

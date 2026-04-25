@@ -19,16 +19,15 @@ func newTestManager(msgs ...llm.Message) *agentctx.Manager {
 }
 
 func TestRouterSystemPrompt_ContainsToolList(t *testing.T) {
-	reg := NewRegistry()
-	reg.Register(newMockTool("echo", "Echoes a message"))
-	reg.Register(newMockTool("read_file", "Reads a file"))
+	eng := New(&mockCompleter{},
+		WithSystemPrompt("You are a helpful assistant."),
+		WithTools(
+			newMockTool("echo", "Echoes a message"),
+			newMockTool("read_file", "Reads a file"),
+		),
+	)
 
-	eng := &Engine{
-		systemPrompt: "You are a helpful assistant.",
-		registry:     reg,
-	}
-
-	prompt := eng.routerSystemPrompt()
+	prompt := eng.promptBuilder.BuildRouterSystemPrompt()
 
 	if !strings.Contains(prompt, "You are a helpful assistant.") {
 		t.Error("missing base system prompt")
@@ -45,15 +44,12 @@ func TestRouterSystemPrompt_ContainsToolList(t *testing.T) {
 }
 
 func TestRouterSystemPrompt_EmptySystemPrompt(t *testing.T) {
-	reg := NewRegistry()
-	reg.Register(newMockTool("echo", "Echoes"))
+	eng := New(&mockCompleter{},
+		WithSystemPrompt(""),
+		WithTools(newMockTool("echo", "Echoes")),
+	)
 
-	eng := &Engine{
-		systemPrompt: "",
-		registry:     reg,
-	}
-
-	prompt := eng.routerSystemPrompt()
+	prompt := eng.promptBuilder.BuildRouterSystemPrompt()
 
 	if strings.HasPrefix(prompt, "\n") {
 		t.Error("should not start with newline when systemPrompt is empty")
@@ -65,20 +61,13 @@ func TestRouterSystemPrompt_EmptySystemPrompt(t *testing.T) {
 
 func TestRouterStep_SelectsTool(t *testing.T) {
 	routerJSON := `{"tool":"read_file","arguments":{"path":"test.txt"},"reasoning":"user wants to read a file"}`
-	mc := &mockCompleter{
-		responses: []*llm.ChatResponse{
-			chatResponse(routerJSON),
+	eng := New(
+		&mockCompleter{
+			responses: []*llm.ChatResponse{chatResponse(routerJSON)},
 		},
-	}
-
-	reg := NewRegistry()
-	reg.Register(newMockTool("read_file", "Reads a file"))
-
-	eng := &Engine{
-		completer:  mc,
-		registry:   reg,
-		ctxManager: newTestManager(UserMessage("read test.txt")),
-	}
+		WithTools(newMockTool("read_file", "Reads a file")),
+	)
+	eng.ctxManager.Add(UserMessage("read test.txt"))
 
 	rr, usage, err := eng.routerStep(context.Background())
 	if err != nil {
@@ -100,17 +89,12 @@ func TestRouterStep_SelectsTool(t *testing.T) {
 
 func TestRouterStep_SelectsNone(t *testing.T) {
 	routerJSON := `{"tool":"none","arguments":{},"reasoning":"simple math, no tool needed"}`
-	mc := &mockCompleter{
-		responses: []*llm.ChatResponse{
-			chatResponse(routerJSON),
+	eng := New(
+		&mockCompleter{
+			responses: []*llm.ChatResponse{chatResponse(routerJSON)},
 		},
-	}
-
-	eng := &Engine{
-		completer:  mc,
-		registry:   NewRegistry(),
-		ctxManager: newTestManager(UserMessage("1+1は?")),
-	}
+	)
+	eng.ctxManager.Add(UserMessage("1+1は?"))
 
 	rr, _, err := eng.routerStep(context.Background())
 	if err != nil {
@@ -123,17 +107,12 @@ func TestRouterStep_SelectsNone(t *testing.T) {
 
 func TestRouterStep_EmptyToolFallsBackToNone(t *testing.T) {
 	routerJSON := `{"tool":"","arguments":{},"reasoning":"no tool"}`
-	mc := &mockCompleter{
-		responses: []*llm.ChatResponse{
-			chatResponse(routerJSON),
+	eng := New(
+		&mockCompleter{
+			responses: []*llm.ChatResponse{chatResponse(routerJSON)},
 		},
-	}
-
-	eng := &Engine{
-		completer:  mc,
-		registry:   NewRegistry(),
-		ctxManager: newTestManager(UserMessage("hello")),
-	}
+	)
+	eng.ctxManager.Add(UserMessage("hello"))
 
 	rr, _, err := eng.routerStep(context.Background())
 	if err != nil {
@@ -145,15 +124,12 @@ func TestRouterStep_EmptyToolFallsBackToNone(t *testing.T) {
 }
 
 func TestRouterStep_APIError(t *testing.T) {
-	mc := &mockCompleter{
-		err: &llm.APIError{StatusCode: 500, Body: "internal server error"},
-	}
-
-	eng := &Engine{
-		completer:  mc,
-		registry:   NewRegistry(),
-		ctxManager: newTestManager(UserMessage("test")),
-	}
+	eng := New(
+		&mockCompleter{
+			err: &llm.APIError{StatusCode: 500, Body: "internal server error"},
+		},
+	)
+	eng.ctxManager.Add(UserMessage("test"))
 
 	_, _, err := eng.routerStep(context.Background())
 	if err == nil {
@@ -165,17 +141,12 @@ func TestRouterStep_APIError(t *testing.T) {
 }
 
 func TestBuildRouterMessages(t *testing.T) {
-	reg := NewRegistry()
-	reg.Register(newMockTool("echo", "Echoes"))
-
-	eng := &Engine{
-		systemPrompt: "base prompt",
-		registry:     reg,
-		ctxManager: newTestManager(
-			UserMessage("hello"),
-			AssistantMessage("hi there"),
-		),
-	}
+	eng := New(&mockCompleter{},
+		WithSystemPrompt("base prompt"),
+		WithTools(newMockTool("echo", "Echoes")),
+	)
+	eng.ctxManager.Add(UserMessage("hello"))
+	eng.ctxManager.Add(AssistantMessage("hi there"))
 
 	msgs := eng.buildRouterMessages()
 
@@ -200,12 +171,8 @@ func TestRouterStep_ResponseFormatIsJSON(t *testing.T) {
 			chatResponse(`{"tool":"none","arguments":{},"reasoning":"test"}`),
 		},
 	}
-
-	eng := &Engine{
-		completer:  mc,
-		registry:   NewRegistry(),
-		ctxManager: newTestManager(UserMessage("test")),
-	}
+	eng := New(mc)
+	eng.ctxManager.Add(UserMessage("test"))
 
 	eng.routerStep(context.Background())
 
@@ -218,5 +185,39 @@ func TestRouterStep_ResponseFormatIsJSON(t *testing.T) {
 	}
 	if req.ResponseFormat.Type != "json_object" {
 		t.Errorf("ResponseFormat.Type = %q, want %q", req.ResponseFormat.Type, "json_object")
+	}
+}
+
+func TestRouterSystemPrompt_ContainsDelegateAndCoordinator(t *testing.T) {
+	eng := New(&mockCompleter{},
+		WithTools(newMockTool("echo", "Echoes")),
+		WithDelegateEnabled(true),
+		WithCoordinatorEnabled(true),
+	)
+
+	prompt := eng.promptBuilder.BuildRouterSystemPrompt()
+
+	if !strings.Contains(prompt, "### delegate_task") {
+		t.Error("missing delegate_task definition")
+	}
+	if !strings.Contains(prompt, "### coordinate_tasks") {
+		t.Error("missing coordinate_tasks definition")
+	}
+}
+
+func TestRouterSystemPrompt_DisabledDelegateAndCoordinator(t *testing.T) {
+	eng := New(&mockCompleter{},
+		WithTools(newMockTool("echo", "Echoes")),
+		WithDelegateEnabled(false),
+		WithCoordinatorEnabled(false),
+	)
+
+	prompt := eng.promptBuilder.BuildRouterSystemPrompt()
+
+	if strings.Contains(prompt, "### delegate_task") {
+		t.Error("delegate_task should not appear when disabled")
+	}
+	if strings.Contains(prompt, "### coordinate_tasks") {
+		t.Error("coordinate_tasks should not appear when disabled")
 	}
 }

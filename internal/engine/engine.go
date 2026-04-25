@@ -8,19 +8,26 @@ import (
 
 	agentctx "ai-agent/internal/context"
 	"ai-agent/internal/llm"
+	"ai-agent/pkg/tool"
 )
 
 // Engine はエージェントループを管理する。
 type Engine struct {
-	completer        llm.Completer
-	ctxManager       *agentctx.Manager
-	maxTurns         int
-	systemPrompt     string
-	registry         *Registry
-	logw             io.Writer
-	compaction       *agentctx.CompactionConfig
-	delegateEnabled  bool
-	delegateMaxChars int
+	completer          llm.Completer
+	ctxManager         *agentctx.Manager
+	maxTurns           int
+	systemPrompt       string
+	registry           *Registry
+	logw               io.Writer
+	compaction         *agentctx.CompactionConfig
+	delegateEnabled    bool
+	delegateMaxChars   int
+	workDir            string
+	coordinatorEnabled bool
+	coordinateMaxChars int
+	promptBuilder      *PromptBuilder
+	reminderThreshold  int
+	toolScope          *ToolScope
 }
 
 // New は Engine を生成する。
@@ -40,16 +47,24 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 	ctxMgr := agentctx.NewManager(cfg.tokenLimit)
 
 	eng := &Engine{
-		completer:        completer,
-		ctxManager:       ctxMgr,
-		maxTurns:         cfg.maxTurns,
-		systemPrompt:     cfg.systemPrompt,
-		registry:         reg,
-		logw:             cfg.logWriter,
-		compaction:       cfg.compaction,
-		delegateEnabled:  cfg.delegateEnabled,
-		delegateMaxChars: cfg.delegateMaxChars,
+		completer:          completer,
+		ctxManager:         ctxMgr,
+		maxTurns:           cfg.maxTurns,
+		systemPrompt:       cfg.systemPrompt,
+		registry:           reg,
+		logw:               cfg.logWriter,
+		compaction:         cfg.compaction,
+		delegateEnabled:    cfg.delegateEnabled,
+		delegateMaxChars:   cfg.delegateMaxChars,
+		workDir:            cfg.workDir,
+		coordinatorEnabled: cfg.coordinatorEnabled,
+		coordinateMaxChars: cfg.coordinateMaxChars,
+		reminderThreshold:  cfg.reminderThreshold,
+		toolScope:          cfg.toolScope,
 	}
+
+	// PromptBuilder を初期化
+	eng.initPromptBuilder(cfg)
 
 	// 閾値超過時のログ出力を登録
 	ctxMgr.OnThreshold(func(evt agentctx.Event) {
@@ -76,14 +91,17 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 func (e *Engine) Fork(opts ...Option) *Engine {
 	// 親の設定をベースに子Engineの設定を構築
 	cfg := engineConfig{
-		maxTurns:         e.maxTurns,
-		systemPrompt:     e.systemPrompt,
-		tools:            e.registry.Tools(),
-		logWriter:        e.logw,
-		tokenLimit:       e.ctxManager.TokenLimit(),
-		compaction:       e.compaction,
-		delegateEnabled:  false, // ネスト再帰防止
-		delegateMaxChars: e.delegateMaxChars,
+		maxTurns:           e.maxTurns,
+		systemPrompt:       e.systemPrompt,
+		tools:              e.registry.Tools(),
+		logWriter:          e.logw,
+		tokenLimit:         e.ctxManager.TokenLimit(),
+		compaction:         e.compaction,
+		delegateEnabled:    false, // ネスト再帰防止
+		delegateMaxChars:   e.delegateMaxChars,
+		workDir:            e.workDir,
+		coordinatorEnabled: false, // ネスト再帰防止
+		coordinateMaxChars: e.coordinateMaxChars,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -97,6 +115,9 @@ func (e *Engine) Fork(opts ...Option) *Engine {
 		WithTokenLimit(cfg.tokenLimit),
 		WithDelegateEnabled(cfg.delegateEnabled),
 		WithDelegateMaxChars(cfg.delegateMaxChars),
+		WithWorkDir(cfg.workDir),
+		WithCoordinatorEnabled(cfg.coordinatorEnabled),
+		WithCoordinateMaxChars(cfg.coordinateMaxChars),
 		withOptionalCompaction(cfg.compaction),
 	)
 }
@@ -106,6 +127,21 @@ func withOptionalCompaction(cfg *agentctx.CompactionConfig) Option {
 	return func(c *engineConfig) {
 		c.compaction = cfg
 	}
+}
+
+// AddMessage はメッセージを会話履歴に追加する。外部テスト向けの公開メソッド。
+func (e *Engine) AddMessage(msg llm.Message) {
+	e.ctxManager.Add(msg)
+}
+
+// ReservedTokens はシステムプロンプト + ツール定義の予約トークン数を返す。
+func (e *Engine) ReservedTokens() int {
+	return e.promptBuilder.EstimateReservedTokens()
+}
+
+// UsageRatio は現在のコンテキスト使用率を返す。
+func (e *Engine) UsageRatio() float64 {
+	return e.ctxManager.UsageRatio()
 }
 
 // logf はログメッセージを出力する。logw が nil の場合は何もしない。
@@ -238,9 +274,12 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 		return lr, nil
 	}
 
-	// delegate_task の検出（バーチャルツール、ADR-006）
+	// バーチャルツールの検出（ADR-006）
 	if rr.Tool == "delegate_task" && e.delegateEnabled {
 		return e.delegateStep(ctx, rr, usage)
+	}
+	if rr.Tool == "coordinate_tasks" && e.coordinatorEnabled {
+		return e.coordinateStep(ctx, rr, usage)
 	}
 
 	e.logf("[router] %s を選択 | 引数: %s", rr.Tool, string(rr.Arguments))
@@ -264,9 +303,13 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 		}, nil
 	}
 
-	// 4. ツール実行
+	// 4. ツール実行（workDir があればコンテキストに注入）
 	e.logf("[tool] %s を実行中...", rr.Tool)
-	result, execErr := t.Execute(ctx, rr.Arguments)
+	toolCtx := ctx
+	if e.workDir != "" {
+		toolCtx = tool.ContextWithWorkDir(ctx, e.workDir)
+	}
+	result, execErr := t.Execute(toolCtx, rr.Arguments)
 
 	// 5. 合成メッセージの構築と履歴への追加
 	callID := generateCallID()
@@ -307,25 +350,138 @@ func (e *Engine) availableToolNames() string {
 	return strings.Join(names, ", ")
 }
 
+// initPromptBuilder は PromptBuilder を初期化し、セクションを登録する。
+func (e *Engine) initPromptBuilder(cfg engineConfig) {
+	pb := NewPromptBuilder()
+
+	// システムプロンプト（chat + router 共通）
+	if cfg.systemPrompt != "" {
+		pb.Add(Section{
+			Key:      "system",
+			Priority: PrioritySystem,
+			Scope:    ScopeAll,
+			Content:  cfg.systemPrompt,
+			Required: true,
+		})
+	}
+
+	// ツール定義（router のみ）
+	reg := e.registry
+	delegateEnabled := e.delegateEnabled
+	coordinatorEnabled := e.coordinatorEnabled
+	toolScope := e.toolScope
+	pb.Add(Section{
+		Key:      "tools",
+		Priority: PriorityTools,
+		Scope:    ScopeRouter,
+		Dynamic: func() string {
+			var sb strings.Builder
+			if toolScope != nil {
+				sb.WriteString(reg.ScopedFormatForPrompt(*toolScope))
+			} else {
+				sb.WriteString(reg.FormatForPrompt())
+			}
+			if delegateEnabled {
+				sb.WriteString(delegateToolDef())
+			}
+			if coordinatorEnabled {
+				sb.WriteString(coordinatorToolDef())
+			}
+			return sb.String()
+		},
+	})
+
+	// ルーターの Instructions（router のみ、末尾近くに配置）
+	// Lost in the Middle 対策: JSON応答指示はユーザー入力に近い位置に配置
+	pb.Add(Section{
+		Key:      "instructions",
+		Priority: PriorityReminder - 1, // リマインダーの直前
+		Scope:    ScopeRouter,
+		Content:  routerInstructions(),
+		Required: true,
+	})
+
+	// MEMORY インデックス（developer 優先度で router に含める）
+	if len(cfg.memoryEntries) > 0 {
+		mi := NewMemoryIndex(cfg.memoryEntries)
+		pb.Add(Section{
+			Key:      "memory_index",
+			Priority: PriorityDeveloper,
+			Scope:    ScopeRouter,
+			Dynamic:  mi.FormatForPrompt,
+		})
+	}
+
+	// ユーザー指定の動的セクション
+	for _, ds := range cfg.dynamicSections {
+		pb.Add(ds)
+	}
+
+	e.promptBuilder = pb
+}
+
 // buildMessages はシステムプロンプトと会話履歴を結合してリクエスト用メッセージを構築する。
+// リマインダーが登録されており会話が十分長い場合、末尾近くにリマインダーを挿入する。
 func (e *Engine) buildMessages() []llm.Message {
 	history := e.ctxManager.Messages()
-	msgs := make([]llm.Message, 0, len(history)+1)
-	if e.systemPrompt != "" {
-		msgs = append(msgs, SystemMessage(e.systemPrompt))
+	sysPrompt := e.promptBuilder.BuildSystemPrompt()
+	reminder := e.buildReminder(len(history))
+
+	msgs := make([]llm.Message, 0, len(history)+2)
+	if sysPrompt != "" {
+		msgs = append(msgs, SystemMessage(sysPrompt))
 	}
-	msgs = append(msgs, history...)
+
+	if reminder == "" {
+		msgs = append(msgs, history...)
+		return msgs
+	}
+
+	// リマインダーを最後の user メッセージの直前に挿入する
+	insertIdx := findLastUserIndex(history)
+	for i, m := range history {
+		if i == insertIdx {
+			msgs = append(msgs, UserMessage("[System Reminder] "+reminder))
+		}
+		msgs = append(msgs, m)
+	}
+	// 最後の user メッセージがない場合は末尾に追加
+	if insertIdx == len(history) {
+		msgs = append(msgs, UserMessage("[System Reminder] "+reminder))
+	}
+
 	return msgs
 }
 
-// updateReservedTokens はシステムプロンプトとツール定義の推定トークン数を計算し、Manager に設定する。
+// buildReminder はリマインダーテキストを返す。
+// リマインダーセクションが未登録、閾値未到達、または内容が空の場合は空文字を返す。
+func (e *Engine) buildReminder(historyLen int) string {
+	if e.reminderThreshold <= 0 {
+		return ""
+	}
+	if historyLen < e.reminderThreshold {
+		return ""
+	}
+	content, ok := e.promptBuilder.Resolve("reminder")
+	if !ok || content == "" {
+		return ""
+	}
+	return content
+}
+
+// findLastUserIndex は history 内の最後の user メッセージのインデックスを返す。
+// 見つからない場合は len(history) を返す。
+func findLastUserIndex(history []llm.Message) int {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" {
+			return i
+		}
+	}
+	return len(history)
+}
+
+// updateReservedTokens は PromptBuilder の推定トークン数を Manager に設定する。
 func (e *Engine) updateReservedTokens() {
-	var reserved int
-	if e.systemPrompt != "" {
-		reserved += agentctx.EstimateTextTokens(e.systemPrompt)
-	}
-	if e.registry.Len() > 0 {
-		reserved += agentctx.EstimateTextTokens(e.registry.FormatForPrompt())
-	}
+	reserved := e.promptBuilder.EstimateReservedTokens()
 	e.ctxManager.SetReserved(reserved)
 }

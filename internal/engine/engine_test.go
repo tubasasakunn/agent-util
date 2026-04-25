@@ -524,3 +524,127 @@ func TestRun_CompactionReducesContext(t *testing.T) {
 		t.Errorf("tokens not reduced: %d >= %d", afterTokens, beforeTokens)
 	}
 }
+
+// --- Phase 7b: リマインダーテスト ---
+
+func TestBuildMessages_ReminderInserted(t *testing.T) {
+	mock := &mockCompleter{}
+	eng := New(mock,
+		WithReminderThreshold(4),
+		WithDynamicSection(Section{
+			Key:      "reminder",
+			Priority: PriorityReminder,
+			Scope:    ScopeManual,
+			Content:  "Always respond in Japanese.",
+		}),
+	)
+
+	// 閾値以上のメッセージを追加（4件）
+	for i := 0; i < 4; i++ {
+		eng.ctxManager.Add(UserMessage(fmt.Sprintf("msg%d", i)))
+		eng.ctxManager.Add(AssistantMessage(fmt.Sprintf("resp%d", i)))
+	}
+
+	msgs := eng.buildMessages()
+
+	// リマインダーが含まれることを確認
+	found := false
+	for _, m := range msgs {
+		if m.Role == "user" && m.ContentString() == "[System Reminder] Always respond in Japanese." {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("reminder message should be inserted")
+	}
+
+	// リマインダーは最後の user メッセージの直前に位置する
+	reminderIdx := -1
+	lastUserIdx := -1
+	for i, m := range msgs {
+		if m.Role == "user" && m.ContentString() == "[System Reminder] Always respond in Japanese." {
+			reminderIdx = i
+		}
+		if m.Role == "user" && m.ContentString() == "msg3" {
+			lastUserIdx = i
+		}
+	}
+	if reminderIdx >= 0 && lastUserIdx >= 0 && reminderIdx >= lastUserIdx {
+		t.Errorf("reminder (%d) should be before last user message (%d)", reminderIdx, lastUserIdx)
+	}
+}
+
+func TestBuildMessages_ShortConversation_NoReminder(t *testing.T) {
+	mock := &mockCompleter{}
+	eng := New(mock,
+		WithReminderThreshold(8),
+		WithDynamicSection(Section{
+			Key:      "reminder",
+			Priority: PriorityReminder,
+			Scope:    ScopeManual,
+			Content:  "test reminder",
+		}),
+	)
+
+	// 閾値未満のメッセージ（2件）
+	eng.ctxManager.Add(UserMessage("hello"))
+	eng.ctxManager.Add(AssistantMessage("hi"))
+
+	msgs := eng.buildMessages()
+
+	for _, m := range msgs {
+		if m.ContentString() == "[System Reminder] test reminder" {
+			t.Error("reminder should not be inserted for short conversations")
+		}
+	}
+}
+
+func TestBuildMessages_NoReminderSection_NoInsert(t *testing.T) {
+	mock := &mockCompleter{}
+	eng := New(mock,
+		WithReminderThreshold(2),
+		// WithDynamicSection なし（リマインダー未登録）
+	)
+
+	for i := 0; i < 5; i++ {
+		eng.ctxManager.Add(UserMessage(fmt.Sprintf("msg%d", i)))
+		eng.ctxManager.Add(AssistantMessage(fmt.Sprintf("resp%d", i)))
+	}
+
+	msgs := eng.buildMessages()
+
+	for _, m := range msgs {
+		if m.Role == "user" {
+			content := m.ContentString()
+			if len(content) > 17 && content[:17] == "[System Reminder]" {
+				t.Error("no reminder should be inserted without reminder section")
+			}
+		}
+	}
+}
+
+func TestBuildMessages_ReminderDisabled(t *testing.T) {
+	mock := &mockCompleter{}
+	eng := New(mock,
+		WithReminderThreshold(0), // 無効化
+		WithDynamicSection(Section{
+			Key:      "reminder",
+			Priority: PriorityReminder,
+			Scope:    ScopeManual,
+			Content:  "test",
+		}),
+	)
+
+	for i := 0; i < 10; i++ {
+		eng.ctxManager.Add(UserMessage(fmt.Sprintf("msg%d", i)))
+	}
+
+	msgs := eng.buildMessages()
+
+	for _, m := range msgs {
+		if m.ContentString() == "[System Reminder] test" {
+			t.Error("reminder should not be inserted when threshold is 0")
+		}
+	}
+}

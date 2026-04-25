@@ -29,6 +29,10 @@ pkg/tool/        — Tool interface、スキーマ定義
 - ADR-005: コンテキスト縮約に4段階カスケードパターンを採用
 - ADR-006: サブエージェント統合にEngine内バーチャルツールパターンを採用
 - ADR-007: サブエージェント結果の凝縮に文字数制限方式を採用
+- ADR-008: Worktree実行モデルでworkDirをcontext.Context経由で伝達
+- ADR-009: Coordinator並列実行にsync.WaitGroupと部分成功パターンを採用
+- ADR-010: Ralph WiggumループにファイルシステムベースのSessionRunnerを採用
+- ADR-011: PromptBuilderによるセクションベースのプロンプト構成を採用
 
 詳細は `/decision list` で確認。
 
