@@ -69,6 +69,12 @@ export interface AgentConfig {
   max_turns?: number;
   system_prompt?: string;
   token_limit?: number;
+  /**
+   * Minimum number of distinct tools that must be invoked before the router
+   * is allowed to commit to "none". Used by deep-research workflows to force
+   * cross-source aggregation. 0 (default) disables the constraint.
+   */
+  min_tool_kinds?: number;
   /** Accepted for cross-SDK compatibility but not used in the browser. */
   work_dir?: string;
   /** Accepted but ignored — the browser engine has no subagent. */

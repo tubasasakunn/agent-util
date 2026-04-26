@@ -64,6 +64,7 @@ const $ = <T extends HTMLElement>(sel: string): T => {
 
 const modelSelect = $<HTMLSelectElement>('#model-select');
 const loadBtn = $<HTMLButtonElement>('#load-btn');
+const deepResearchToggle = $<HTMLInputElement>('#deep-research-toggle');
 const statusEl = $<HTMLDivElement>('#status');
 const progress = $<HTMLProgressElement>('#progress');
 const chat = $<HTMLDivElement>('#chat');
@@ -216,6 +217,12 @@ const searchWikipediaTool = tool<{ query: string; lang?: string }>({
   },
   readOnly: true,
   handler: async ({ query, lang }) => {
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      return {
+        content: 'search_wikipedia: required argument "query" is missing or empty. Provide a search term.',
+        is_error: true,
+      };
+    }
     const language = (lang as string) || 'en';
     try {
       const searchUrl = `https://${language}.wikipedia.org/w/api.php?action=opensearch&format=json&origin=*&limit=3&search=${encodeURIComponent(String(query))}`;
@@ -266,10 +273,54 @@ const fetchJsonTool = tool<{ url: string; path?: string }>({
           picked = (picked as Record<string | number, unknown>)[idx as never];
         }
       }
+      // path で undefined に到達した場合は明示的にエラーを返す（JSON.stringify(undefined) = undefined のため）
+      if (picked === undefined) {
+        return {
+          content: `fetch_json: path "${path ?? ''}" did not resolve to a value`,
+          is_error: true,
+        };
+      }
       const out = JSON.stringify(picked, null, 2);
       return out.length > 8192 ? out.slice(0, 8192) + '\n... [truncated]' : out;
     } catch (err) {
       return { content: `fetch_json failed: ${(err as Error).message}`, is_error: true };
+    }
+  },
+});
+
+const hnTopStoriesTool = tool<{ count?: number }>({
+  name: 'hn_top_stories',
+  description:
+    'Fetch the current top N Hacker News stories (default 5, max 10) with title, URL, score, and comment count. No URL parameter needed — call this for "current tech news" / "trending HN" / "what is popular on Hacker News" questions.',
+  parameters: {
+    type: 'object',
+    properties: { count: { type: 'number', description: 'How many stories (1-10)' } },
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: async ({ count }) => {
+    const n = typeof count === 'number' ? Math.min(Math.max(count, 1), 10) : 5;
+    try {
+      const idsRes = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
+      const ids = (await idsRes.json()) as number[];
+      const top = ids.slice(0, n);
+      const items = await Promise.all(
+        top.map(async (id) => {
+          const r = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+          return (await r.json()) as Record<string, unknown>;
+        }),
+      );
+      return items
+        .map((it, i) => {
+          const title = String(it.title ?? '(no title)');
+          const url = it.url ? `\n   ${it.url}` : '';
+          const score = it.score ?? '?';
+          const comments = it.descendants ?? 0;
+          return `${i + 1}. ${title}${url}\n   (${score} points, ${comments} comments)`;
+        })
+        .join('\n');
+    } catch (err) {
+      return { content: `hn_top_stories failed: ${(err as Error).message}`, is_error: true };
     }
   },
 });
@@ -528,6 +579,7 @@ renderToolList([
   'fetch_markdown',
   'extract_html',
   'fetch_json',
+  'hn_top_stories',
   'fetch_rss',
   'render_in_iframe',
   'search_wikipedia',
@@ -567,37 +619,104 @@ loadBtn.addEventListener('click', async () => {
   progress.hidden = true;
   setStatus(`Model loaded — ready. Ask the agent something.`);
 
+  await rebuildAgent();
+
+  promptEl.disabled = false;
+  sendBtn.disabled = false;
+  promptEl.focus();
+});
+
+const DEEP_RESEARCH_SYSTEM_PROMPT = `You are a research agent doing deep, multi-source investigation.
+
+HARD RULES — these override every other instruction:
+- You MUST call AT LEAST 2 DIFFERENT tools (different tool names) before you may select "none".
+- On turn 1 you MUST call a tool, never "none".
+- On turn 2 you MUST call a DIFFERENT tool than turn 1.
+- Only after 2+ distinct tool calls may you select "none" and write the final report.
+- ALWAYS provide all REQUIRED arguments per the tool schema. NEVER call a tool with empty {} arguments.
+- For search_wikipedia, the "query" string is required (e.g. {"query":"TypeScript"}).
+- For hn_top_stories, no arguments are required (just call it).
+
+Step-by-step procedure:
+1. Turn 1 — background: call search_wikipedia (or fetch_url for a primary source).
+2. Turn 2 — fresh data: call fetch_json (Hacker News, Reddit, GitHub APIs) or fetch_rss for current info.
+3. Turn 3+ — optional deeper dives if facts are still unclear.
+4. Once you have 2+ sources, select "none" and produce a structured report:
+   ## Summary
+   <2-3 line overview>
+   ## Key facts
+   - fact 1 (source)
+   - fact 2 (source)
+   - fact 3 (source)
+   ## Answer
+   <final concise answer>
+
+Tool guide:
+- search_wikipedia: encyclopedic background ("What is X?", history, definitions)
+- hn_top_stories: trending tech news from Hacker News (NO url parameter needed — just call it)
+- fetch_json: other JSON APIs (GitHub, Reddit .json suffix). Use ONLY with URLs explicitly given by the user.
+- fetch_url / fetch_markdown: primary docs, blogs, official sites — only with URLs the user gave.
+- fetch_rss: news feeds — only with URLs the user gave.
+- render_in_iframe: SPA pages where fetch_url returns empty.
+- get_current_time: when "today" / "now" matters.
+
+CRITICAL: Never invent URLs. If you do not know an exact URL, use search_wikipedia or hn_top_stories instead.
+Be precise. Cite sources by tool name. Never invent facts.`;
+
+async function rebuildAgent(): Promise<void> {
+  if (!llm) return;
   agent = new Agent({ llm });
-  // ToolDefinition<Specific> は registerTools の variadic パラメータに代入できないため
-  // ジェネリクスを忘れさせて配列展開で渡す。SDK 内部では Record<string, unknown> 扱い。
-  agent.registerTools(
-    ...([
-      echoTool,
-      calcTool,
-      fetchTool,
-      fetchMarkdownTool,
-      extractHtmlTool,
-      fetchJsonTool,
-      fetchRssTool,
-      renderInIframeTool,
-      searchWikipediaTool,
-      currentTimeTool,
-    ] as Parameters<typeof agent.registerTools>),
-  );
+  const deep = deepResearchToggle.checked;
+  // Deep research 時は URL を引数に取るツールを除外（小型モデルが URL を幻覚するのを防ぐ）。
+  const tools = deep
+    ? [echoTool, calcTool, searchWikipediaTool, hnTopStoriesTool, currentTimeTool]
+    : [
+        echoTool,
+        calcTool,
+        fetchTool,
+        fetchMarkdownTool,
+        extractHtmlTool,
+        fetchJsonTool,
+        hnTopStoriesTool,
+        fetchRssTool,
+        renderInIframeTool,
+        searchWikipediaTool,
+        currentTimeTool,
+      ];
+  agent.registerTools(...(tools as Parameters<typeof agent.registerTools>));
+  renderToolList(tools.map((t) => t.name));
+  await applyAgentConfig();
+}
+
+async function applyAgentConfig(): Promise<void> {
+  if (!agent) return;
+  const deep = deepResearchToggle.checked;
   await agent.configure({
-    max_turns: 6,
+    max_turns: deep ? 12 : 6,
     streaming: { enabled: true },
+    ...(deep ? { system_prompt: DEEP_RESEARCH_SYSTEM_PROMPT } : {}),
+    min_tool_kinds: deep ? 2 : 0,
     guards: {
       input: ['prompt_injection'],
       tool_call: ['dangerous_shell'],
       output: ['secret_leak'],
     },
-    verify: { verifiers: ['non_empty'] },
+    verify: {
+      verifiers: ['non_empty'],
+      max_consecutive_failures: deep ? 8 : 3,
+    },
   });
+}
 
-  promptEl.disabled = false;
-  sendBtn.disabled = false;
-  promptEl.focus();
+deepResearchToggle.addEventListener('change', async () => {
+  if (!agent) return;
+  const enabled = deepResearchToggle.checked;
+  await rebuildAgent();
+  setStatus(
+    enabled
+      ? 'Deep Research mode ON — agent will gather from multiple sources.'
+      : 'Deep Research mode OFF — quick single-tool replies.',
+  );
 });
 
 // --- Submit handler ------------------------------------------------------

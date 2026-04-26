@@ -93,6 +93,7 @@ export class Agent {
   private systemPrompt = '';
   private tokenLimit = DEFAULT_TOKEN_LIMIT;
   private maxConsecutiveFailures = DEFAULT_MAX_CONSECUTIVE_FAILURES;
+  private minToolKinds = 0;
   private temperature: number | undefined;
   private streaming: StreamingConfig = { enabled: false };
   private permission: PermissionConfig = {
@@ -141,6 +142,10 @@ export class Agent {
     if (typeof params.token_limit === 'number') {
       this.tokenLimit = Math.max(256, Math.floor(params.token_limit));
       applied.push('token_limit');
+    }
+    if (typeof params.min_tool_kinds === 'number') {
+      this.minToolKinds = Math.max(0, Math.floor(params.min_tool_kinds));
+      applied.push('min_tool_kinds');
     }
     if (params.streaming && typeof params.streaming === 'object') {
       this.streaming = { ...(params.streaming as StreamingConfig) };
@@ -246,6 +251,7 @@ export class Agent {
       tokenLimit: this.tokenLimit,
       maxConsecutiveFailures: this.maxConsecutiveFailures,
       streaming: !!this.streaming.enabled,
+      minToolKinds: this.minToolKinds,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
       onEvent,
       ...(this.temperature !== undefined ? { temperature: this.temperature } : {}),

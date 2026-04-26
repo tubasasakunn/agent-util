@@ -115,6 +115,13 @@ export interface LoopConfig {
   onEvent?: LoopEventHandler;
   /** Optional default temperature forwarded to chat / router calls. */
   temperature?: number;
+  /**
+   * Minimum number of *distinct* tool names that must have been called before
+   * the router is allowed to pick "none" (= write the final answer). Used by
+   * deep-research mode to force the model to consult multiple sources.
+   * 0 (default) disables the constraint.
+   */
+  minToolKinds?: number;
 }
 
 const FAILURE_REASONS = new Set([
@@ -167,6 +174,8 @@ export class AgentLoop {
   }
 
   private currentTurn = 0;
+  /** Distinct tool names successfully invoked in the current run. */
+  private executedToolKinds = new Set<string>();
 
   async run(prompt: string): Promise<AgentResult> {
     this.checkAbort();
@@ -295,6 +304,21 @@ export class AgentLoop {
     await this.emit({ kind: 'router', turn, decision });
 
     if (decision.tool === 'none' || decision.tool === '') {
+      // Deep-research constraint: force more tool diversity before letting the
+      // router commit to "none" and write the final answer.
+      const minKinds = this.cfg.minToolKinds ?? 0;
+      if (minKinds > 0 && this.executedToolKinds.size < minKinds) {
+        const used =
+          this.executedToolKinds.size === 0
+            ? 'no tools yet'
+            : `so far: ${[...this.executedToolKinds].join(', ')}`;
+        const remaining = minKinds - this.executedToolKinds.size;
+        const reminder =
+          `[System reminder] You picked "none" but deep-research mode requires ${minKinds} distinct tools (${used}). ` +
+          `Call ${remaining} more different tool(s) before answering. Pick a tool now, do NOT pick none.`;
+        this.history.add(userMessage(reminder));
+        return { terminal: false, reason: 'min_tools_not_met' };
+      }
       const text = await this.chatStep(turn);
       return { terminal: true, reason: 'completed', response: text };
     }
@@ -394,6 +418,10 @@ export class AgentLoop {
 
     this.history.add(toolResultMessage(callId, result.content));
     await this.emit({ kind: 'tool_result', turn, name: t.name, result });
+
+    if (!result.is_error) {
+      this.executedToolKinds.add(t.name);
+    }
 
     if (result.is_error) {
       return { terminal: false, reason: 'tool_error' };
