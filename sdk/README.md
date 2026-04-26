@@ -7,7 +7,7 @@ need — they all speak the same protocol described in
 | Language | Status | Path                       |
 | -------- | ------ | -------------------------- |
 | Python   | alpha  | [`./python/`](./python/)   |
-| JavaScript / TypeScript | _planned_ | _todo_ |
+| JavaScript / TypeScript | alpha | [`./js/`](./js/) |
 
 All SDKs assume the user has built the agent binary first:
 

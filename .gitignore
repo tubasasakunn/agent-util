@@ -13,3 +13,11 @@ sdk/python/**/*.egg-info/
 sdk/python/dist/
 sdk/python/build/
 sdk/python/.pytest_cache/
+
+# JavaScript / TypeScript SDK build / cache artifacts
+sdk/js/node_modules/
+sdk/js/dist/
+sdk/js/.vitest/
+sdk/js/coverage/
+sdk/js/*.tsbuildinfo
+sdk/js/package-lock.json
