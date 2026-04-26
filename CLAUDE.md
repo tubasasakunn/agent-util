@@ -64,3 +64,13 @@ pkg/tool/        — Tool interface、スキーマ定義
 ## 開発ルール
 
 - 各Phaseの実装完了後は `/investigate` でシナリオベースの統合検証を実施し、結果を記録すること
+
+## リリース
+
+- リリース手順: [docs/RELEASE.md](docs/RELEASE.md)
+- リリース直前のチェックリスト: [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+- v0.1.0 リリースノート: [docs/RELEASE_NOTES_v0.1.0.md](docs/RELEASE_NOTES_v0.1.0.md)
+- 貢献ガイド: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
+- バージョン同期は `pkg/protocol/version.go` / `sdk/python/pyproject.toml` /
+  `sdk/js/package.json` / `README.md` バッジ / 本ファイル `## バージョン` /
+  `CHANGELOG.md` 見出しの 6 箇所すべてを同一値に揃える

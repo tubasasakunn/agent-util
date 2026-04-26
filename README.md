@@ -98,6 +98,21 @@ examples/         — Python / TS の利用例
 
 詳細は [docs/VERSIONING.md](docs/VERSIONING.md) を参照。
 
+## リリース
+
+| リソース             | 場所                                                                |
+| -------------------- | ------------------------------------------------------------------- |
+| 最新リリース         | [GitHub Releases](https://github.com/tubasasakunn/ai-agent/releases) |
+| 変更履歴             | [CHANGELOG.md](CHANGELOG.md)                                        |
+| v0.1.0 リリースノート | [docs/RELEASE_NOTES_v0.1.0.md](docs/RELEASE_NOTES_v0.1.0.md)        |
+| リリース手順         | [docs/RELEASE.md](docs/RELEASE.md)                                  |
+| リリースチェックリスト | [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)              |
+| バージョニング方針   | [docs/VERSIONING.md](docs/VERSIONING.md)                            |
+
+## 貢献
+
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) を参照。
+
 ## ライセンス
 
 [MIT](LICENSE)
