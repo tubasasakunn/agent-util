@@ -634,8 +634,11 @@ HARD RULES — these override every other instruction:
 - On turn 2 you MUST call a DIFFERENT tool than turn 1.
 - Only after 2+ distinct tool calls may you select "none" and write the final report.
 - ALWAYS provide all REQUIRED arguments per the tool schema. NEVER call a tool with empty {} arguments.
-- For search_wikipedia, the "query" string is required (e.g. {"query":"TypeScript"}).
+- For search_wikipedia, the "query" string is required.
+  - For ambiguous topics, DISAMBIGUATE the query: "Rust (programming language)" not "Rust", "Python (programming language)" not "Python".
+  - Examples: {"query":"TypeScript"}, {"query":"Rust (programming language)"}, {"query":"Linux kernel"}.
 - For hn_top_stories, no arguments are required (just call it).
+- If a tool returns the wrong topic (e.g. wikipedia returned the metal "rust" when you wanted the language), DO NOT retry the same query — refine it with a disambiguator like "(programming language)" or "(technology)".
 
 Step-by-step procedure:
 1. Turn 1 — background: call search_wikipedia (or fetch_url for a primary source).

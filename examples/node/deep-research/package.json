@@ -1,0 +1,13 @@
+{
+  "name": "ai-agent-deep-research-example",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Deep Research example: Node.js + @ai-agent/browser + local LM Studio (or any OpenAI-compatible HTTP endpoint).",
+  "type": "module",
+  "scripts": {
+    "start": "node dr.mjs"
+  },
+  "dependencies": {
+    "@ai-agent/browser": "file:../../../sdk/js-browser"
+  }
+}

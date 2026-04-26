@@ -176,6 +176,10 @@ export class AgentLoop {
   private currentTurn = 0;
   /** Distinct tool names successfully invoked in the current run. */
   private executedToolKinds = new Set<string>();
+  /** Name of the most recent tool successfully invoked. */
+  private lastToolName: string | null = null;
+  /** Consecutive successful invocations of the same tool. */
+  private lastToolStreak = 0;
 
   async run(prompt: string): Promise<AgentResult> {
     this.checkAbort();
@@ -274,17 +278,47 @@ export class AgentLoop {
       return { terminal: true, reason: 'completed', response: text };
     }
 
+    // Repetition guard: if the same tool was just called >=3 times in a row
+    // and the diversity requirement is already met, bypass the router and
+    // commit to the chat step. Prevents small models from looping on a
+    // single tool when they should be synthesizing the answer.
+    const minKindsCfg = this.cfg.minToolKinds ?? 0;
+    if (
+      this.lastToolStreak >= 3 &&
+      this.executedToolKinds.size >= minKindsCfg
+    ) {
+      this.history.add(
+        userMessage(
+          `[System reminder] Sufficient information has been gathered (${this.executedToolKinds.size} distinct tool(s) used). ` +
+            `Stop calling tools and write the final structured answer now.`,
+        ),
+      );
+      const text = await this.chatStep(turn);
+      return { terminal: true, reason: 'completed', response: text };
+    }
+
+    // Deep-research diversity: when min_tool_kinds is set and not yet met,
+    // exclude already-used tools from the router's enum so the model is
+    // forced (by grammar-constrained decoding) to pick something new.
+    const minKinds = this.cfg.minToolKinds ?? 0;
+    const diversityActive =
+      minKinds > 0 && this.executedToolKinds.size > 0 && this.executedToolKinds.size < minKinds;
+    const allowedTools = diversityActive
+      ? tools.filter((t) => !this.executedToolKinds.has(t.name))
+      : tools;
+    const toolNames = allowedTools.map((t) => t.name);
+
     let decision: RouterDecision;
     try {
       decision = await routerStep(
         this.cfg.llm,
         buildRouterSystemPrompt({
           systemPrompt: this.cfg.systemPrompt,
-          tools,
+          tools: allowedTools,
         }),
         this.history.messages(),
         {
-          toolNames: tools.map((t) => t.name),
+          toolNames,
           ...(this.cfg.temperature !== undefined ? { temperature: this.cfg.temperature } : {}),
         },
       );
@@ -302,6 +336,24 @@ export class AgentLoop {
     }
 
     await this.emit({ kind: 'router', turn, decision });
+
+    // Diversity enforcement: reject already-used tools when min_tool_kinds is not met.
+    // (the router prompt + enum already exclude them, but small models often echo
+    // the previous tool name from history; we hard-reject here as a backstop.)
+    if (
+      diversityActive &&
+      decision.tool !== 'none' &&
+      decision.tool !== '' &&
+      this.executedToolKinds.has(decision.tool)
+    ) {
+      const remaining = toolNames.filter((n) => n !== 'none');
+      const reminder =
+        `[System reminder] You picked "${decision.tool}" but you have already used it. ` +
+        `Deep-research mode requires DIFFERENT tools. Already used: ${[...this.executedToolKinds].join(', ')}. ` +
+        `Pick a NEW tool from: ${remaining.join(', ') || '(no other tools available)'}.`;
+      this.history.add(userMessage(reminder));
+      return { terminal: false, reason: 'min_tools_not_met' };
+    }
 
     if (decision.tool === 'none' || decision.tool === '') {
       // Deep-research constraint: force more tool diversity before letting the
@@ -421,6 +473,12 @@ export class AgentLoop {
 
     if (!result.is_error) {
       this.executedToolKinds.add(t.name);
+      if (this.lastToolName === t.name) {
+        this.lastToolStreak += 1;
+      } else {
+        this.lastToolName = t.name;
+        this.lastToolStreak = 1;
+      }
     }
 
     if (result.is_error) {
