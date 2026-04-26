@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/VerifierExecuteResult.json",
+  "title": "VerifierExecuteResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["passed"],
+  "properties": {
+    "passed": { "type": "boolean" },
+    "summary": { "type": "string" },
+    "details": { "type": "array", "items": { "type": "string" } }
+  }
+}

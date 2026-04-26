@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/CompactionConfig.json",
+  "title": "CompactionConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "budget_max_chars": { "type": "integer" },
+    "keep_last": { "type": "integer" },
+    "target_ratio": { "type": "number" },
+    "summarizer": { "type": "string" }
+  }
+}

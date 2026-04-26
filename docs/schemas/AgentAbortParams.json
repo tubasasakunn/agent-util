@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/AgentAbortParams.json",
+  "title": "AgentAbortParams",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "reason": { "type": "string" }
+  }
+}

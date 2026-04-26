@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/CoordinatorConfig.json",
+  "title": "CoordinatorConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "max_chars": { "type": "integer" }
+  }
+}

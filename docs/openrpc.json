@@ -1,0 +1,930 @@
+{
+  "openrpc": "1.2.6",
+  "info": {
+    "title": "ai-agent JSON-RPC API",
+    "version": "0.1.0",
+    "description": "JSON-RPC 2.0 API for the ai-agent SLLM agent harness. The core (Go) and language wrappers communicate over stdio with newline-delimited JSON-RPC. Methods include both wrapper-to-core (request/response) and core-to-wrapper (callbacks). Notifications carry no `id` and expect no response."
+  },
+  "servers": [
+    {
+      "name": "stdio",
+      "url": "stdio://local",
+      "description": "Newline-delimited JSON-RPC 2.0 over stdin/stdout."
+    }
+  ],
+  "methods": [
+    {
+      "name": "agent.run",
+      "summary": "Run the agent loop on a prompt.",
+      "description": "Executes the agent loop until completion or until max_turns is reached. Wrapper-to-core request.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/AgentRunParams" }
+        }
+      ],
+      "result": {
+        "name": "AgentRunResult",
+        "schema": { "$ref": "#/components/schemas/AgentRunResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/AgentBusy" },
+        { "$ref": "#/components/errors/Aborted" },
+        { "$ref": "#/components/errors/Internal" }
+      ],
+      "examples": [
+        {
+          "name": "simple-run",
+          "params": [
+            {
+              "name": "params",
+              "value": { "prompt": "Summarize README.md", "max_turns": 8 }
+            }
+          ],
+          "result": {
+            "name": "AgentRunResult",
+            "value": {
+              "response": "README.md describes the project.",
+              "reason": "completed",
+              "turns": 3,
+              "usage": { "prompt_tokens": 1234, "completion_tokens": 256, "total_tokens": 1490 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent.abort",
+      "summary": "Abort the currently running agent loop.",
+      "description": "Cancels an in-flight agent.run. Wrapper-to-core request.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/AgentAbortParams" }
+        }
+      ],
+      "result": {
+        "name": "AgentAbortResult",
+        "schema": { "$ref": "#/components/schemas/AgentAbortResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Internal" }
+      ],
+      "examples": [
+        {
+          "name": "abort-with-reason",
+          "params": [
+            {
+              "name": "params",
+              "value": { "reason": "user requested" }
+            }
+          ],
+          "result": {
+            "name": "AgentAbortResult",
+            "value": { "aborted": true }
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent.configure",
+      "summary": "Configure the agent harness before agent.run.",
+      "description": "Applies harness configuration. Call once before agent.run. nil fields keep existing values; nested config blocks toggle their feature via the `enabled` field.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/AgentConfigureParams" }
+        }
+      ],
+      "result": {
+        "name": "AgentConfigureResult",
+        "schema": { "$ref": "#/components/schemas/AgentConfigureResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/Internal" }
+      ],
+      "examples": [
+        {
+          "name": "enable-streaming",
+          "params": [
+            {
+              "name": "params",
+              "value": {
+                "max_turns": 10,
+                "streaming": { "enabled": true, "context_status": true }
+              }
+            }
+          ],
+          "result": {
+            "name": "AgentConfigureResult",
+            "value": { "applied": ["max_turns", "streaming"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool.register",
+      "summary": "Register wrapper-implemented tools with the core.",
+      "description": "Wrapper-to-core request. Registered tools become invokable from the agent loop and are called back via tool.execute.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/ToolRegisterParams" }
+        }
+      ],
+      "result": {
+        "name": "ToolRegisterResult",
+        "schema": { "$ref": "#/components/schemas/ToolRegisterResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/InvalidParams" }
+      ],
+      "examples": [
+        {
+          "name": "register-read-file",
+          "params": [
+            {
+              "name": "params",
+              "value": {
+                "tools": [
+                  {
+                    "name": "read_file",
+                    "description": "Read a file from the workspace",
+                    "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] },
+                    "read_only": true
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "name": "ToolRegisterResult",
+            "value": { "registered": 1 }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tool.execute",
+      "summary": "Execute a wrapper-registered tool (core-to-wrapper).",
+      "description": "Core-to-wrapper request. The wrapper executes the named tool with the supplied args and returns the textual content (and optional metadata).",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/ToolExecuteParams" }
+        }
+      ],
+      "result": {
+        "name": "ToolExecuteResult",
+        "schema": { "$ref": "#/components/schemas/ToolExecuteResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/ToolNotFound" },
+        { "$ref": "#/components/errors/ToolExecFailed" }
+      ],
+      "examples": [
+        {
+          "name": "execute-read-file",
+          "params": [
+            {
+              "name": "params",
+              "value": { "name": "read_file", "args": { "path": "README.md" } }
+            }
+          ],
+          "result": {
+            "name": "ToolExecuteResult",
+            "value": { "content": "file contents...", "is_error": false }
+          }
+        }
+      ]
+    },
+    {
+      "name": "mcp.register",
+      "summary": "Register an external MCP server as a tool source.",
+      "description": "Wrapper-to-core request. Spawns or connects to the configured MCP server (stdio or sse transport) and exposes its tools to the agent.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/MCPRegisterParams" }
+        }
+      ],
+      "result": {
+        "name": "MCPRegisterResult",
+        "schema": { "$ref": "#/components/schemas/MCPRegisterResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/Internal" }
+      ],
+      "examples": [
+        {
+          "name": "stdio-server",
+          "params": [
+            {
+              "name": "params",
+              "value": { "transport": "stdio", "command": "mcp-fs", "args": ["--root", "."] }
+            }
+          ],
+          "result": {
+            "name": "MCPRegisterResult",
+            "value": { "tools": ["fs.read", "fs.write"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "guard.register",
+      "summary": "Register wrapper-implemented guards with the core.",
+      "description": "Wrapper-to-core request. Registered guard names can be referenced from agent.configure guards.input/tool_call/output and are invoked via guard.execute.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/GuardRegisterParams" }
+        }
+      ],
+      "result": {
+        "name": "GuardRegisterResult",
+        "schema": { "$ref": "#/components/schemas/GuardRegisterResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/InvalidParams" }
+      ],
+      "examples": [
+        {
+          "name": "register-input-guard",
+          "params": [
+            {
+              "name": "params",
+              "value": {
+                "guards": [
+                  { "name": "no_secrets", "stage": "input" }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "name": "GuardRegisterResult",
+            "value": { "registered": 1 }
+          }
+        }
+      ]
+    },
+    {
+      "name": "guard.execute",
+      "summary": "Execute a wrapper-registered guard (core-to-wrapper).",
+      "description": "Core-to-wrapper request. Depending on the stage, either input, tool_name+args, or output is provided.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/GuardExecuteParams" }
+        }
+      ],
+      "result": {
+        "name": "GuardExecuteResult",
+        "schema": { "$ref": "#/components/schemas/GuardExecuteResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Internal" }
+      ],
+      "examples": [
+        {
+          "name": "input-guard-allow",
+          "params": [
+            {
+              "name": "params",
+              "value": { "name": "no_secrets", "stage": "input", "input": "hello" }
+            }
+          ],
+          "result": {
+            "name": "GuardExecuteResult",
+            "value": { "decision": "allow" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "verifier.register",
+      "summary": "Register wrapper-implemented verifiers with the core.",
+      "description": "Wrapper-to-core request. Registered verifier names can be referenced from agent.configure verify.verifiers and are invoked via verifier.execute.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/VerifierRegisterParams" }
+        }
+      ],
+      "result": {
+        "name": "VerifierRegisterResult",
+        "schema": { "$ref": "#/components/schemas/VerifierRegisterResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/InvalidParams" }
+      ],
+      "examples": [
+        {
+          "name": "register-verifier",
+          "params": [
+            {
+              "name": "params",
+              "value": { "verifiers": [{ "name": "json_valid" }] }
+            }
+          ],
+          "result": {
+            "name": "VerifierRegisterResult",
+            "value": { "registered": 1 }
+          }
+        }
+      ]
+    },
+    {
+      "name": "verifier.execute",
+      "summary": "Execute a wrapper-registered verifier (core-to-wrapper).",
+      "description": "Core-to-wrapper request. Verifies the result of a tool invocation.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/VerifierExecuteParams" }
+        }
+      ],
+      "result": {
+        "name": "VerifierExecuteResult",
+        "schema": { "$ref": "#/components/schemas/VerifierExecuteResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Internal" }
+      ],
+      "examples": [
+        {
+          "name": "verify-passed",
+          "params": [
+            {
+              "name": "params",
+              "value": { "name": "json_valid", "tool_name": "fetch_json", "result": "{\"ok\":true}" }
+            }
+          ],
+          "result": {
+            "name": "VerifierExecuteResult",
+            "value": { "passed": true }
+          }
+        }
+      ]
+    },
+    {
+      "name": "stream.delta",
+      "summary": "Notification: streaming text delta from the model (core-to-wrapper).",
+      "description": "Sent as a JSON-RPC notification (no id). Carries an incremental text chunk produced by the model. Result is null per OpenRPC notification convention.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/StreamDeltaParams" }
+        }
+      ],
+      "result": {
+        "name": "null",
+        "schema": { "type": "null" }
+      },
+      "examples": [
+        {
+          "name": "delta-chunk",
+          "params": [
+            {
+              "name": "params",
+              "value": { "text": "Hello", "turn": 1 }
+            }
+          ],
+          "result": { "name": "null", "value": null }
+        }
+      ]
+    },
+    {
+      "name": "stream.end",
+      "summary": "Notification: streaming complete (core-to-wrapper).",
+      "description": "Sent as a JSON-RPC notification (no id). Indicates the agent loop has finished. Result is null per OpenRPC notification convention.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/StreamEndParams" }
+        }
+      ],
+      "result": {
+        "name": "null",
+        "schema": { "type": "null" }
+      },
+      "examples": [
+        {
+          "name": "end-completed",
+          "params": [
+            {
+              "name": "params",
+              "value": { "reason": "completed", "turns": 3 }
+            }
+          ],
+          "result": { "name": "null", "value": null }
+        }
+      ]
+    },
+    {
+      "name": "context.status",
+      "summary": "Notification: context window usage (core-to-wrapper).",
+      "description": "Sent as a JSON-RPC notification (no id). Reports current context window usage. Result is null per OpenRPC notification convention.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/ContextStatusParams" }
+        }
+      ],
+      "result": {
+        "name": "null",
+        "schema": { "type": "null" }
+      },
+      "examples": [
+        {
+          "name": "half-full",
+          "params": [
+            {
+              "name": "params",
+              "value": { "usage_ratio": 0.5, "token_count": 2048, "token_limit": 4096 }
+            }
+          ],
+          "result": { "name": "null", "value": null }
+        }
+      ]
+    }
+  ],
+  "components": {
+    "errors": {
+      "Parse": { "code": -32700, "message": "Parse error" },
+      "InvalidRequest": { "code": -32600, "message": "Invalid request" },
+      "MethodNotFound": { "code": -32601, "message": "Method not found" },
+      "InvalidParams": { "code": -32602, "message": "Invalid params" },
+      "Internal": { "code": -32603, "message": "Internal error" },
+      "ToolNotFound": { "code": -32000, "message": "Tool not found" },
+      "ToolExecFailed": { "code": -32001, "message": "Tool execution failed" },
+      "AgentBusy": { "code": -32002, "message": "Agent already running" },
+      "Aborted": { "code": -32003, "message": "Aborted" },
+      "MessageTooLarge": { "code": -32004, "message": "Message too large" }
+    },
+    "schemas": {
+      "AgentRunParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/AgentRunParams.json",
+        "title": "AgentRunParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["prompt"],
+        "properties": {
+          "prompt": { "type": "string" },
+          "max_turns": { "type": "integer" }
+        }
+      },
+      "AgentRunResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/AgentRunResult.json",
+        "title": "AgentRunResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["response", "reason", "turns", "usage"],
+        "properties": {
+          "response": { "type": "string" },
+          "reason": { "type": "string" },
+          "turns": { "type": "integer" },
+          "usage": { "$ref": "#/components/schemas/UsageInfo" }
+        }
+      },
+      "UsageInfo": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/UsageInfo.json",
+        "title": "UsageInfo",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
+        "properties": {
+          "prompt_tokens": { "type": "integer" },
+          "completion_tokens": { "type": "integer" },
+          "total_tokens": { "type": "integer" }
+        }
+      },
+      "AgentAbortParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/AgentAbortParams.json",
+        "title": "AgentAbortParams",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": { "type": "string" }
+        }
+      },
+      "AgentAbortResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/AgentAbortResult.json",
+        "title": "AgentAbortResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["aborted"],
+        "properties": {
+          "aborted": { "type": "boolean" }
+        }
+      },
+      "AgentConfigureParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/AgentConfigureParams.json",
+        "title": "AgentConfigureParams",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "max_turns": { "type": "integer" },
+          "system_prompt": { "type": "string" },
+          "token_limit": { "type": "integer" },
+          "work_dir": { "type": "string" },
+          "delegate": { "$ref": "#/components/schemas/DelegateConfig" },
+          "coordinator": { "$ref": "#/components/schemas/CoordinatorConfig" },
+          "compaction": { "$ref": "#/components/schemas/CompactionConfig" },
+          "permission": { "$ref": "#/components/schemas/PermissionConfig" },
+          "guards": { "$ref": "#/components/schemas/GuardsConfig" },
+          "verify": { "$ref": "#/components/schemas/VerifyConfig" },
+          "tool_scope": { "$ref": "#/components/schemas/ToolScopeConfig" },
+          "reminder": { "$ref": "#/components/schemas/ReminderConfig" },
+          "streaming": { "$ref": "#/components/schemas/StreamingConfig" }
+        }
+      },
+      "DelegateConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/DelegateConfig.json",
+        "title": "DelegateConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "max_chars": { "type": "integer" }
+        }
+      },
+      "CoordinatorConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/CoordinatorConfig.json",
+        "title": "CoordinatorConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "max_chars": { "type": "integer" }
+        }
+      },
+      "CompactionConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/CompactionConfig.json",
+        "title": "CompactionConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "budget_max_chars": { "type": "integer" },
+          "keep_last": { "type": "integer" },
+          "target_ratio": { "type": "number" },
+          "summarizer": { "type": "string" }
+        }
+      },
+      "PermissionConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/PermissionConfig.json",
+        "title": "PermissionConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "deny": { "type": "array", "items": { "type": "string" } },
+          "allow": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "GuardsConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/GuardsConfig.json",
+        "title": "GuardsConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "input": { "type": "array", "items": { "type": "string" } },
+          "tool_call": { "type": "array", "items": { "type": "string" } },
+          "output": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "VerifyConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/VerifyConfig.json",
+        "title": "VerifyConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "verifiers": { "type": "array", "items": { "type": "string" } },
+          "max_step_retries": { "type": "integer" },
+          "max_consecutive_failures": { "type": "integer" }
+        }
+      },
+      "ToolScopeConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ToolScopeConfig.json",
+        "title": "ToolScopeConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "max_tools": { "type": "integer" },
+          "include_always": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ReminderConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ReminderConfig.json",
+        "title": "ReminderConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "threshold": { "type": "integer" },
+          "content": { "type": "string" }
+        }
+      },
+      "StreamingConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/StreamingConfig.json",
+        "title": "StreamingConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "context_status": { "type": "boolean" }
+        }
+      },
+      "AgentConfigureResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/AgentConfigureResult.json",
+        "title": "AgentConfigureResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["applied"],
+        "properties": {
+          "applied": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ToolRegisterParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ToolRegisterParams.json",
+        "title": "ToolRegisterParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tools"],
+        "properties": {
+          "tools": { "type": "array", "items": { "$ref": "#/components/schemas/ToolDefinition" } }
+        }
+      },
+      "ToolDefinition": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ToolDefinition.json",
+        "title": "ToolDefinition",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description", "parameters"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "parameters": { "type": "object", "description": "JSON Schema for the tool parameters." },
+          "read_only": { "type": "boolean" }
+        }
+      },
+      "ToolRegisterResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ToolRegisterResult.json",
+        "title": "ToolRegisterResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["registered"],
+        "properties": {
+          "registered": { "type": "integer" }
+        }
+      },
+      "ToolExecuteParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ToolExecuteParams.json",
+        "title": "ToolExecuteParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "args"],
+        "properties": {
+          "name": { "type": "string" },
+          "args": { "type": "object", "description": "Tool arguments matching the tool's parameter schema." }
+        }
+      },
+      "ToolExecuteResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ToolExecuteResult.json",
+        "title": "ToolExecuteResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string" },
+          "is_error": { "type": "boolean" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "MCPRegisterParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/MCPRegisterParams.json",
+        "title": "MCPRegisterParams",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "transport": { "type": "string", "enum": ["stdio", "sse"] },
+          "command": { "type": "string" },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "env": { "type": "object", "additionalProperties": { "type": "string" } },
+          "url": { "type": "string" }
+        }
+      },
+      "MCPRegisterResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/MCPRegisterResult.json",
+        "title": "MCPRegisterResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tools"],
+        "properties": {
+          "tools": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "GuardRegisterParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/GuardRegisterParams.json",
+        "title": "GuardRegisterParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["guards"],
+        "properties": {
+          "guards": { "type": "array", "items": { "$ref": "#/components/schemas/GuardDefinition" } }
+        }
+      },
+      "GuardDefinition": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/GuardDefinition.json",
+        "title": "GuardDefinition",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "stage"],
+        "properties": {
+          "name": { "type": "string" },
+          "stage": { "type": "string", "enum": ["input", "tool_call", "output"] }
+        }
+      },
+      "GuardRegisterResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/GuardRegisterResult.json",
+        "title": "GuardRegisterResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["registered"],
+        "properties": {
+          "registered": { "type": "integer" }
+        }
+      },
+      "GuardExecuteParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/GuardExecuteParams.json",
+        "title": "GuardExecuteParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "stage"],
+        "properties": {
+          "name": { "type": "string" },
+          "stage": { "type": "string", "enum": ["input", "tool_call", "output"] },
+          "input": { "type": "string" },
+          "tool_name": { "type": "string" },
+          "args": { "type": "object", "description": "Tool arguments when stage is tool_call." },
+          "output": { "type": "string" }
+        }
+      },
+      "GuardExecuteResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/GuardExecuteResult.json",
+        "title": "GuardExecuteResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decision"],
+        "properties": {
+          "decision": { "type": "string", "enum": ["allow", "deny", "tripwire"] },
+          "reason": { "type": "string" },
+          "details": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "VerifierRegisterParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/VerifierRegisterParams.json",
+        "title": "VerifierRegisterParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["verifiers"],
+        "properties": {
+          "verifiers": { "type": "array", "items": { "$ref": "#/components/schemas/VerifierDefinition" } }
+        }
+      },
+      "VerifierDefinition": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/VerifierDefinition.json",
+        "title": "VerifierDefinition",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      },
+      "VerifierRegisterResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/VerifierRegisterResult.json",
+        "title": "VerifierRegisterResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["registered"],
+        "properties": {
+          "registered": { "type": "integer" }
+        }
+      },
+      "VerifierExecuteParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/VerifierExecuteParams.json",
+        "title": "VerifierExecuteParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "tool_name", "result"],
+        "properties": {
+          "name": { "type": "string" },
+          "tool_name": { "type": "string" },
+          "args": { "type": "object", "description": "Original tool arguments, optional." },
+          "result": { "type": "string" }
+        }
+      },
+      "VerifierExecuteResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/VerifierExecuteResult.json",
+        "title": "VerifierExecuteResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["passed"],
+        "properties": {
+          "passed": { "type": "boolean" },
+          "summary": { "type": "string" },
+          "details": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "StreamDeltaParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/StreamDeltaParams.json",
+        "title": "StreamDeltaParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string" },
+          "turn": { "type": "integer" }
+        }
+      },
+      "StreamEndParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/StreamEndParams.json",
+        "title": "StreamEndParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason", "turns"],
+        "properties": {
+          "reason": { "type": "string" },
+          "turns": { "type": "integer" }
+        }
+      },
+      "ContextStatusParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/ContextStatusParams.json",
+        "title": "ContextStatusParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["usage_ratio", "token_count", "token_limit"],
+        "properties": {
+          "usage_ratio": { "type": "number" },
+          "token_count": { "type": "integer" },
+          "token_limit": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

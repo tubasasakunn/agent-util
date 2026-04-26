@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/ToolExecuteParams.json",
+  "title": "ToolExecuteParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "args"],
+  "properties": {
+    "name": { "type": "string" },
+    "args": { "type": "object", "description": "Tool arguments matching the tool's parameter schema." }
+  }
+}

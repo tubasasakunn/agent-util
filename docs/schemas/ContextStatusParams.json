@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/ContextStatusParams.json",
+  "title": "ContextStatusParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["usage_ratio", "token_count", "token_limit"],
+  "properties": {
+    "usage_ratio": { "type": "number" },
+    "token_count": { "type": "integer" },
+    "token_limit": { "type": "integer" }
+  }
+}

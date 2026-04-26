@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/UsageInfo.json",
+  "title": "UsageInfo",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
+  "properties": {
+    "prompt_tokens": { "type": "integer" },
+    "completion_tokens": { "type": "integer" },
+    "total_tokens": { "type": "integer" }
+  }
+}

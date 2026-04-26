@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/GuardExecuteResult.json",
+  "title": "GuardExecuteResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision"],
+  "properties": {
+    "decision": { "type": "string", "enum": ["allow", "deny", "tripwire"] },
+    "reason": { "type": "string" },
+    "details": { "type": "array", "items": { "type": "string" } }
+  }
+}

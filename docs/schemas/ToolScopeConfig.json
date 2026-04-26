@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/ToolScopeConfig.json",
+  "title": "ToolScopeConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "max_tools": { "type": "integer" },
+    "include_always": { "type": "array", "items": { "type": "string" } }
+  }
+}

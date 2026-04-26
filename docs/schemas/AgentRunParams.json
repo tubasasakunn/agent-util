@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/AgentRunParams.json",
+  "title": "AgentRunParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt"],
+  "properties": {
+    "prompt": { "type": "string" },
+    "max_turns": { "type": "integer" }
+  }
+}

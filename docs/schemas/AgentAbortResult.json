@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/AgentAbortResult.json",
+  "title": "AgentAbortResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["aborted"],
+  "properties": {
+    "aborted": { "type": "boolean" }
+  }
+}

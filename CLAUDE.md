@@ -40,6 +40,17 @@ pkg/tool/        — Tool interface、スキーマ定義
 
 詳細は `/decision list` で確認。
 
+## API仕様
+
+ラッパー実装者向けの公開仕様は `docs/` 以下に置く。
+
+- `docs/openrpc.json` — OpenRPC 1.2.6 仕様。全 JSON-RPC メソッド・パラメータ・結果・エラーを定義
+- `docs/schemas/*.json` — 各型の独立 JSON Schema（Draft 2020-12）。quicktype / datamodel-code-generator 等で型生成に使用
+- `docs/README.md` — 使い方とクライアント生成例
+- `pkg/protocol/spec_test.go` — Go 型と OpenRPC 仕様の一致を検証
+
+`pkg/protocol/methods.go` が真実の源で、`docs/openrpc.json` は手書きで同期する。バージョニング方針は `.claude/rules/protocol.md` を参照。
+
 ## 開発ルール
 
 - 各Phaseの実装完了後は `/investigate` でシナリオベースの統合検証を実施し、結果を記録すること

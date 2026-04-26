@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/ToolRegisterResult.json",
+  "title": "ToolRegisterResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["registered"],
+  "properties": {
+    "registered": { "type": "integer" }
+  }
+}

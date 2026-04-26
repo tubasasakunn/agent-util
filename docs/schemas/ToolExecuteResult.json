@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/ToolExecuteResult.json",
+  "title": "ToolExecuteResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["content"],
+  "properties": {
+    "content": { "type": "string" },
+    "is_error": { "type": "boolean" },
+    "metadata": { "type": "object", "additionalProperties": true }
+  }
+}

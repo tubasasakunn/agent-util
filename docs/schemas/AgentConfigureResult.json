@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/AgentConfigureResult.json",
+  "title": "AgentConfigureResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["applied"],
+  "properties": {
+    "applied": { "type": "array", "items": { "type": "string" } }
+  }
+}

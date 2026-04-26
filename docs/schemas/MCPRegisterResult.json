@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/MCPRegisterResult.json",
+  "title": "MCPRegisterResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tools"],
+  "properties": {
+    "tools": { "type": "array", "items": { "type": "string" } }
+  }
+}

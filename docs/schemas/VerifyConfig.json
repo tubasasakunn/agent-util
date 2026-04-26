@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/VerifyConfig.json",
+  "title": "VerifyConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "verifiers": { "type": "array", "items": { "type": "string" } },
+    "max_step_retries": { "type": "integer" },
+    "max_consecutive_failures": { "type": "integer" }
+  }
+}

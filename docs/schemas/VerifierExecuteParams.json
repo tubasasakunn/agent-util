@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/VerifierExecuteParams.json",
+  "title": "VerifierExecuteParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "tool_name", "result"],
+  "properties": {
+    "name": { "type": "string" },
+    "tool_name": { "type": "string" },
+    "args": { "type": "object", "description": "Original tool arguments, optional." },
+    "result": { "type": "string" }
+  }
+}

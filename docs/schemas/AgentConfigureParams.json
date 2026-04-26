@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/AgentConfigureParams.json",
+  "title": "AgentConfigureParams",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "max_turns": { "type": "integer" },
+    "system_prompt": { "type": "string" },
+    "token_limit": { "type": "integer" },
+    "work_dir": { "type": "string" },
+    "delegate": { "$ref": "DelegateConfig.json" },
+    "coordinator": { "$ref": "CoordinatorConfig.json" },
+    "compaction": { "$ref": "CompactionConfig.json" },
+    "permission": { "$ref": "PermissionConfig.json" },
+    "guards": { "$ref": "GuardsConfig.json" },
+    "verify": { "$ref": "VerifyConfig.json" },
+    "tool_scope": { "$ref": "ToolScopeConfig.json" },
+    "reminder": { "$ref": "ReminderConfig.json" },
+    "streaming": { "$ref": "StreamingConfig.json" }
+  }
+}

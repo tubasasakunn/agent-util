@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/PermissionConfig.json",
+  "title": "PermissionConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "deny": { "type": "array", "items": { "type": "string" } },
+    "allow": { "type": "array", "items": { "type": "string" } }
+  }
+}

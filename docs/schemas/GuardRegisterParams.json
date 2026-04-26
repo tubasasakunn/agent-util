@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/GuardRegisterParams.json",
+  "title": "GuardRegisterParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["guards"],
+  "properties": {
+    "guards": { "type": "array", "items": { "$ref": "GuardDefinition.json" } }
+  }
+}

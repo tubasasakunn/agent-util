@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/ReminderConfig.json",
+  "title": "ReminderConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "threshold": { "type": "integer" },
+    "content": { "type": "string" }
+  }
+}

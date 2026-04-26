@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/AgentRunResult.json",
+  "title": "AgentRunResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["response", "reason", "turns", "usage"],
+  "properties": {
+    "response": { "type": "string" },
+    "reason": { "type": "string" },
+    "turns": { "type": "integer" },
+    "usage": { "$ref": "UsageInfo.json" }
+  }
+}

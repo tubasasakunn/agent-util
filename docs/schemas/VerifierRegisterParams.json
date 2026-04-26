@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/VerifierRegisterParams.json",
+  "title": "VerifierRegisterParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verifiers"],
+  "properties": {
+    "verifiers": { "type": "array", "items": { "$ref": "VerifierDefinition.json" } }
+  }
+}
