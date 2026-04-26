@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@ai-agent/browser": "file:../../sdk/js-browser",
-    "@mlc-ai/web-llm": "^0.2.79"
+    "@mlc-ai/web-llm": "^0.2.79",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

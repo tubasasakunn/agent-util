@@ -13,11 +13,12 @@
         <label>
           Model
           <select id="model-select">
-            <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC" selected>Qwen 2.5 0.5B (~400MB)</option>
-            <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B (~700MB)</option>
-            <option value="gemma-2-2b-it-q4f16_1-MLC">Gemma 2 2B (~1.5GB)</option>
-            <option value="gemma-2-2b-jpn-it-q4f16_1-MLC">Gemma 2 2B JPN (~1.5GB)</option>
-            <option value="Llama-3.2-3B-Instruct-q4f16_1-MLC">Llama 3.2 3B (~2GB)</option>
+            <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen 2.5 0.5B q4f16 (~400MB, 最軽量)</option>
+            <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B q4f16 (~700MB)</option>
+            <option value="gemma-2-2b-it-q4f16_1-MLC-1k">Gemma 2 2B q4f16 1k-ctx (~1.4GB, Gemma系最小)</option>
+            <option value="gemma-2-2b-it-q4f16_1-MLC" selected>Gemma 2 2B q4f16 (~1.5GB, 推奨)</option>
+            <option value="gemma-2-2b-jpn-it-q4f16_1-MLC">Gemma 2 2B JPN q4f16 (~1.5GB, 日本語特化)</option>
+            <option value="Llama-3.2-3B-Instruct-q4f16_1-MLC">Llama 3.2 3B q4f16 (~2GB)</option>
           </select>
         </label>
         <button id="load-btn">Load model</button>

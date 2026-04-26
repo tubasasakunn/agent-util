@@ -18,24 +18,32 @@ export interface RouterDecision {
 
 /**
  * Router output JSON schema. Used for grammar-constrained decoding by
- * backends that support it (WebLLM). The schema is intentionally permissive
- * on `arguments` because it varies per tool.
+ * backends that support it (WebLLM). When tool names are known we encode
+ * them as an `enum` so the SLM can never hallucinate non-existent tool
+ * names ("none" is always allowed).
  */
-const ROUTER_SCHEMA: Record<string, unknown> = {
-  type: 'object',
-  properties: {
-    tool: { type: 'string' },
-    arguments: { type: 'object' },
-    reasoning: { type: 'string' },
-  },
-  required: ['tool', 'arguments'],
-};
+function buildRouterSchema(toolNames: ReadonlyArray<string>): Record<string, unknown> {
+  const toolField: Record<string, unknown> = toolNames.length > 0
+    ? { type: 'string', enum: ['none', ...toolNames] }
+    : { type: 'string' };
+  return {
+    type: 'object',
+    properties: {
+      tool: toolField,
+      arguments: { type: 'object' },
+      reasoning: { type: 'string' },
+    },
+    required: ['tool', 'arguments'],
+  };
+}
 
 export interface RouterOptions {
   /** Optional bound on tokens, forwarded to the completer. */
   maxTokens?: number;
   /** Optional temperature, forwarded to the completer. */
   temperature?: number;
+  /** Tool names registered with the engine. Used to constrain the schema enum. */
+  toolNames?: ReadonlyArray<string>;
 }
 
 export class RouterError extends Error {
@@ -55,9 +63,10 @@ export async function routerStep(
     { role: 'system', content: systemPrompt },
     ...history,
   ];
+  const schema = buildRouterSchema(opts.toolNames ?? []);
   const resp = await llm.chatCompletion({
     messages,
-    response_format: { type: 'json_object', schema: ROUTER_SCHEMA },
+    response_format: { type: 'json_object', schema },
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { max_tokens: opts.maxTokens } : {}),
   });

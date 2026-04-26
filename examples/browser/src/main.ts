@@ -1,14 +1,34 @@
 /**
  * Browser demo for @ai-agent/browser.
  *
- * Loads a WebLLM model in the page, registers two preset tools (echo,
- * calculator), wires the agent to a chat UI and a side panel that shows
- * router decisions, guard verdicts, tool calls, and verifier outcomes
- * in real time.
+ * Loads a WebLLM model in the page, registers a useful preset toolkit
+ * (echo, calculator, fetch_url, fetch_markdown, extract_html,
+ * search_wikipedia, get_current_time), wires the agent to a chat UI and
+ * a side panel that shows router decisions, guard verdicts, tool calls,
+ * and verifier outcomes in real time.
  */
 
 import { Agent, tool, type LoopEvent } from '@ai-agent/browser';
 import { WebLLMCompleter } from '@ai-agent/browser/llm';
+// @ts-ignore — turndown ships its own types but vite resolves them at build time
+import TurndownService from 'turndown';
+
+// 公開 CORS proxy。デモ用、信頼性に注意。直接 fetch して CORS で失敗したら proxy 経由で再試行する。
+const CORS_PROXY = 'https://corsproxy.io/?url=';
+
+async function fetchTextWithCorsFallback(url: string, maxBytes = 8192): Promise<string> {
+  const tryFetch = async (target: string): Promise<string> => {
+    const res = await fetch(target, { redirect: 'follow' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    return text.length > maxBytes ? text.slice(0, maxBytes) + '\n... [truncated]' : text;
+  };
+  try {
+    return await tryFetch(url);
+  } catch (e) {
+    return await tryFetch(CORS_PROXY + encodeURIComponent(url));
+  }
+}
 
 const $ = <T extends HTMLElement>(sel: string): T => {
   const el = document.querySelector<T>(sel);
@@ -77,7 +97,30 @@ const calcTool = tool<{ expression: string }>({
 
 const fetchTool = tool<{ url: string }>({
   name: 'fetch_url',
-  description: 'Fetch a URL via window.fetch and return up to 4KB of text.',
+  description:
+    'Fetch a URL and return raw text/HTML (up to 8KB). Auto-falls back to CORS proxy if direct fetch is blocked.',
+  parameters: {
+    type: 'object',
+    properties: { url: { type: 'string', description: 'Absolute URL to fetch' } },
+    required: ['url'],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: async ({ url }) => {
+    try {
+      return await fetchTextWithCorsFallback(String(url), 8192);
+    } catch (err) {
+      return { content: `fetch failed: ${(err as Error).message}`, is_error: true };
+    }
+  },
+});
+
+const turndown = new TurndownService({ headingStyle: 'atx' });
+
+const fetchMarkdownTool = tool<{ url: string }>({
+  name: 'fetch_markdown',
+  description:
+    'Fetch a URL, convert its HTML to Markdown, and return up to 8KB. Best for reading articles/blog posts; strips scripts and styles.',
   parameters: {
     type: 'object',
     properties: { url: { type: 'string' } },
@@ -87,11 +130,115 @@ const fetchTool = tool<{ url: string }>({
   readOnly: true,
   handler: async ({ url }) => {
     try {
-      const r = await fetch(String(url));
-      const txt = await r.text();
-      return txt.slice(0, 4096);
+      const html = await fetchTextWithCorsFallback(String(url), 64 * 1024);
+      // <script> と <style> をざっくり除去してから markdown 化
+      const cleaned = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '');
+      const md = (turndown.turndown(cleaned) as string).trim();
+      return md.length > 8192 ? md.slice(0, 8192) + '\n... [truncated]' : md;
     } catch (err) {
-      return { content: `fetch failed: ${(err as Error).message}`, is_error: true };
+      return { content: `convert failed: ${(err as Error).message}`, is_error: true };
+    }
+  },
+});
+
+const extractHtmlTool = tool<{ url: string; selector: string; limit?: number }>({
+  name: 'extract_html',
+  description:
+    'Fetch a URL and extract elements matching a CSS selector. Returns text content of up to N elements (default 10). Useful for scraping titles, links, list items.',
+  parameters: {
+    type: 'object',
+    properties: {
+      url: { type: 'string' },
+      selector: { type: 'string', description: 'CSS selector, e.g. "h2", "a.title", "article h3"' },
+      limit: { type: 'number', description: 'Max elements (default 10)' },
+    },
+    required: ['url', 'selector'],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: async ({ url, selector, limit }) => {
+    try {
+      const html = await fetchTextWithCorsFallback(String(url), 256 * 1024);
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const els = Array.from(doc.querySelectorAll(String(selector)));
+      const max = typeof limit === 'number' && limit > 0 ? limit : 10;
+      const picked = els.slice(0, max).map((el, i) => {
+        const t = (el.textContent || '').trim().replace(/\s+/g, ' ');
+        const href = el.getAttribute('href') || el.querySelector('a')?.getAttribute('href') || '';
+        return `${i + 1}. ${t}${href ? ` [${href}]` : ''}`;
+      });
+      if (picked.length === 0) return `No elements matched "${selector}".`;
+      return `Matched ${els.length} (showing ${picked.length}):\n` + picked.join('\n');
+    } catch (err) {
+      return { content: `extract failed: ${(err as Error).message}`, is_error: true };
+    }
+  },
+});
+
+const searchWikipediaTool = tool<{ query: string; lang?: string }>({
+  name: 'search_wikipedia',
+  description:
+    'Search Wikipedia and return summaries of the top 3 results. Specify lang ("en" default, "ja" for Japanese).',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string' },
+      lang: { type: 'string', description: '"en" or "ja" (default "en")' },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: async ({ query, lang }) => {
+    const language = (lang as string) || 'en';
+    try {
+      const searchUrl = `https://${language}.wikipedia.org/w/api.php?action=opensearch&format=json&origin=*&limit=3&search=${encodeURIComponent(String(query))}`;
+      const sr = await fetch(searchUrl);
+      const data = (await sr.json()) as [string, string[], string[], string[]];
+      const titles = data[1] || [];
+      const summaries: string[] = [];
+      for (const title of titles) {
+        const sumUrl = `https://${language}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+        try {
+          const sm = await fetch(sumUrl);
+          const j = await sm.json();
+          summaries.push(`### ${j.title}\n${j.extract || '(no extract)'}`);
+        } catch {
+          summaries.push(`### ${title}\n(summary fetch failed)`);
+        }
+      }
+      return summaries.length > 0 ? summaries.join('\n\n') : 'No results.';
+    } catch (err) {
+      return { content: `search failed: ${(err as Error).message}`, is_error: true };
+    }
+  },
+});
+
+const currentTimeTool = tool<{ timezone?: string }>({
+  name: 'get_current_time',
+  description: 'Return the current date/time in ISO format and a human-readable form. Optionally specify an IANA timezone (e.g. "Asia/Tokyo").',
+  parameters: {
+    type: 'object',
+    properties: {
+      timezone: { type: 'string', description: 'IANA tz, e.g. "Asia/Tokyo", "UTC"' },
+    },
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: ({ timezone }) => {
+    const now = new Date();
+    const tz = (timezone as string) || 'UTC';
+    try {
+      const fmt = new Intl.DateTimeFormat('ja-JP', {
+        dateStyle: 'full',
+        timeStyle: 'long',
+        timeZone: tz,
+      });
+      return `ISO: ${now.toISOString()}\n${tz}: ${fmt.format(now)}`;
+    } catch (err) {
+      return { content: `bad timezone "${tz}": ${(err as Error).message}`, is_error: true };
     }
   },
 });
@@ -214,7 +361,15 @@ function renderGuardList(): void {
   }
 }
 
-renderToolList(['echo', 'calculator', 'fetch_url']);
+renderToolList([
+  'echo',
+  'calculator',
+  'fetch_url',
+  'fetch_markdown',
+  'extract_html',
+  'search_wikipedia',
+  'get_current_time',
+]);
 renderGuardList();
 
 // --- Load button ---------------------------------------------------------
@@ -245,7 +400,19 @@ loadBtn.addEventListener('click', async () => {
   setStatus(`Model loaded — ready. Ask the agent something.`);
 
   agent = new Agent({ llm });
-  agent.registerTools(echoTool, calcTool, fetchTool);
+  // ToolDefinition<Specific> は registerTools の variadic パラメータに代入できないため
+  // ジェネリクスを忘れさせて配列展開で渡す。SDK 内部では Record<string, unknown> 扱い。
+  agent.registerTools(
+    ...([
+      echoTool,
+      calcTool,
+      fetchTool,
+      fetchMarkdownTool,
+      extractHtmlTool,
+      searchWikipediaTool,
+      currentTimeTool,
+    ] as Parameters<typeof agent.registerTools>),
+  );
   await agent.configure({
     max_turns: 6,
     streaming: { enabled: true },

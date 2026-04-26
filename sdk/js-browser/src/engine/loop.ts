@@ -275,6 +275,7 @@ export class AgentLoop {
         }),
         this.history.messages(),
         {
+          toolNames: tools.map((t) => t.name),
           ...(this.cfg.temperature !== undefined ? { temperature: this.cfg.temperature } : {}),
         },
       );
