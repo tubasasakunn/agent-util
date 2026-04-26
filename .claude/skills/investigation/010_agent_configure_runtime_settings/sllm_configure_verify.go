@@ -1,12 +1,13 @@
 // agent.configure 実機SLLM検証
 //
 // 検証シナリオ:
-//   A: configure(基本) → applied フィールド確認
-//   B: guards.input=prompt_injection で injection 入力が拒否される
-//   C: guards.output=secret_leak でモデル応答中の機密情報が block される
-//   D: permission.deny + tool.register で router が選んだツールが拒否される
-//   E: 全機能一斉設定 + 簡単な対話 → 完了
-//   F: agent.run中の configure は busy エラー
+//
+//	A: configure(基本) → applied フィールド確認
+//	B: guards.input=prompt_injection で injection 入力が拒否される
+//	C: guards.output=secret_leak でモデル応答中の機密情報が block される
+//	D: permission.deny + tool.register で router が選んだツールが拒否される
+//	E: 全機能一斉設定 + 簡単な対話 → 完了
+//	F: agent.run中の configure は busy エラー
 //
 // 使い方:
 //

@@ -186,7 +186,9 @@ func TestRun_WithTools_EndToEnd(t *testing.T) {
 		description: "Echoes a message",
 		parameters:  json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`),
 		executeFunc: func(_ context.Context, args json.RawMessage) (tool.Result, error) {
-			var a struct{ Message string `json:"message"` }
+			var a struct {
+				Message string `json:"message"`
+			}
 			json.Unmarshal(args, &a)
 			return tool.Result{Content: a.Message}, nil
 		},
@@ -474,7 +476,7 @@ func TestRun_CompactionTriggered(t *testing.T) {
 	cfg := agentctx.DefaultCompactionConfig()
 	eng := New(mock,
 		WithTools(echoTool),
-		WithTokenLimit(100),     // 非常に小さなコンテキスト
+		WithTokenLimit(100), // 非常に小さなコンテキスト
 		WithCompaction(cfg),
 	)
 
@@ -722,8 +724,8 @@ func TestRun_EmptyResponse_RetriedThenSucceeds(t *testing.T) {
 	// EmptyResponse は Transient。1回目が空、2回目で成功。
 	mock := &mockCompleter{
 		responses: []*llm.ChatResponse{
-			{Choices: []llm.Choice{}},        // call 0: empty → retry
-			chatResponse("recovered!"),        // call 1: success
+			{Choices: []llm.Choice{}},  // call 0: empty → retry
+			chatResponse("recovered!"), // call 1: success
 		},
 	}
 	eng := New(mock)

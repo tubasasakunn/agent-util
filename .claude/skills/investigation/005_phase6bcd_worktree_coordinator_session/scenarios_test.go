@@ -60,11 +60,11 @@ func (m *concurrentMock) ChatCompletion(_ context.Context, req *llm.ChatRequest)
 
 // routingMock はサブエージェント判定でレスポンスをルーティングする。
 type routingMock struct {
-	mu                  sync.Mutex
-	parentResponses     []*llm.ChatResponse
-	parentIdx           int
-	childResponses      []*llm.ChatResponse
-	childIdx            int
+	mu              sync.Mutex
+	parentResponses []*llm.ChatResponse
+	parentIdx       int
+	childResponses  []*llm.ChatResponse
+	childIdx        int
 }
 
 func (m *routingMock) ChatCompletion(_ context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
@@ -117,11 +117,15 @@ func makeResp(content string, usage llm.Usage) *llm.ChatResponse {
 
 type workDirTool struct{}
 
-func (t *workDirTool) Name() string               { return "check_workdir" }
-func (t *workDirTool) Description() string         { return "Reports the current working directory from context" }
-func (t *workDirTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object","properties":{}}`) }
-func (t *workDirTool) IsReadOnly() bool            { return true }
-func (t *workDirTool) IsConcurrencySafe() bool     { return true }
+func (t *workDirTool) Name() string { return "check_workdir" }
+func (t *workDirTool) Description() string {
+	return "Reports the current working directory from context"
+}
+func (t *workDirTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{}}`)
+}
+func (t *workDirTool) IsReadOnly() bool        { return true }
+func (t *workDirTool) IsConcurrencySafe() bool { return true }
 func (t *workDirTool) Execute(ctx context.Context, _ json.RawMessage) (tool.Result, error) {
 	dir := tool.WorkDirFromContext(ctx)
 	if dir == "" {
@@ -548,11 +552,13 @@ type captureTool struct {
 	exec func(ctx context.Context, args json.RawMessage) (tool.Result, error)
 }
 
-func (t *captureTool) Name() string               { return t.name }
-func (t *captureTool) Description() string         { return t.desc }
-func (t *captureTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object","properties":{}}`) }
-func (t *captureTool) IsReadOnly() bool            { return true }
-func (t *captureTool) IsConcurrencySafe() bool     { return true }
+func (t *captureTool) Name() string        { return t.name }
+func (t *captureTool) Description() string { return t.desc }
+func (t *captureTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{}}`)
+}
+func (t *captureTool) IsReadOnly() bool        { return true }
+func (t *captureTool) IsConcurrencySafe() bool { return true }
 func (t *captureTool) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	return t.exec(ctx, args)
 }

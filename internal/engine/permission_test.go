@@ -88,7 +88,7 @@ func TestPermissionChecker_Check(t *testing.T) {
 			want: PermDenied,
 		},
 		{
-			name: "read only tool auto-approved when no rules match",
+			name:   "read only tool auto-approved when no rules match",
 			policy: PermissionPolicy{},
 			tool:   &mockTool{name: "read_file", readOnly: true},
 			want:   PermAllowed,

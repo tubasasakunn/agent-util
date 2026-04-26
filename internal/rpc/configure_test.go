@@ -39,10 +39,10 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-func intp(n int) *int           { return &n }
-func boolp(b bool) *bool        { return &b }
+func intp(n int) *int             { return &n }
+func boolp(b bool) *bool          { return &b }
 func float64p(f float64) *float64 { return &f }
-func strp(s string) *string     { return &s }
+func strp(s string) *string       { return &s }
 
 func TestHandlers_AgentConfigure_BasicFields(t *testing.T) {
 	h := newTestHandlers(t, &testCompleter{})

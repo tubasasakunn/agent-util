@@ -16,10 +16,10 @@ import (
 // integrationCompleter はルーターと応答の両方を模倣する Completer。
 // 初回ルーターでツール選択、ツール結果が履歴に入った後の2回目ルーターでは "none" を返す。
 type integrationCompleter struct {
-	toolName  string // ルーターが選択するツール名（空なら"none"）
-	toolArgs  string // ルーターが返す引数JSON
-	response  string // 最終応答テキスト
-	toolCalled bool  // ツールが呼ばれた後は true（次のルーターで "none" を返す）
+	toolName   string // ルーターが選択するツール名（空なら"none"）
+	toolArgs   string // ルーターが返す引数JSON
+	response   string // 最終応答テキスト
+	toolCalled bool   // ツールが呼ばれた後は true（次のルーターで "none" を返す）
 }
 
 func (m *integrationCompleter) ChatCompletion(_ context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {

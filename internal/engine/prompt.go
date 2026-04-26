@@ -30,12 +30,12 @@ const (
 
 // Section はプロンプトの構成要素。
 type Section struct {
-	Key      string       // 一意識別子
-	Priority int          // 小さいほど高優先
-	Scope    SectionScope // 含��れるプロンプトの種類
-	Content  string       // 静的コンテンツ（Dynamic が nil の場合に使用）
+	Key      string        // 一意識別子
+	Priority int           // 小さいほど高優先
+	Scope    SectionScope  // 含��れるプロンプトの種類
+	Content  string        // 静的コンテンツ（Dynamic が nil の場合に使用）
 	Dynamic  func() string // 動的コンテンツ生成関数（非nil なら Content より優先）
-	Required bool         // true = 常に保持
+	Required bool          // true = 常に保持
 }
 
 // resolve はセクションのコンテンツを返す。Dynamic が設定されていればそちらを優先する。

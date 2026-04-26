@@ -99,13 +99,13 @@ func (t *StdioTransport) Close() error {
 // 3. クライアントは POST でそのURLにJSON-RPCメッセージを送信
 // 4. レスポンスは SSE ストリーム経由で受信
 type SSETransport struct {
-	baseURL     string
-	postURL     string // endpoint イベントで受信した送信先URL
-	client      *http.Client
-	messages    chan []byte
-	done        chan struct{}
-	closeOnce   sync.Once
-	mu          sync.Mutex
+	baseURL   string
+	postURL   string // endpoint イベントで受信した送信先URL
+	client    *http.Client
+	messages  chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
+	mu        sync.Mutex
 }
 
 // NewSSETransport は SSE トランスポートを開始する。

@@ -71,9 +71,9 @@ func TestStreaming_DeltaCallbackInOrder(t *testing.T) {
 	}
 
 	var (
-		mu      sync.Mutex
-		deltas  []string
-		turns   []int
+		mu     sync.Mutex
+		deltas []string
+		turns  []int
 	)
 	cb := func(delta string, turn int) {
 		mu.Lock()

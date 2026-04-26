@@ -135,7 +135,7 @@ func TestManager_ThresholdNoDuplicateFire(t *testing.T) {
 		count++
 	})
 
-	mgr.SetReserved(60) // 超過: 発火
+	mgr.SetReserved(60)   // 超過: 発火
 	mgr.Add(userMsg("x")) // まだ超過: 発火しない
 
 	if count != 1 {

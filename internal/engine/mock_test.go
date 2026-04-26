@@ -86,10 +86,10 @@ type mockTool struct {
 }
 
 func (m *mockTool) Name() string                { return m.name }
-func (m *mockTool) Description() string          { return m.description }
-func (m *mockTool) Parameters() json.RawMessage  { return m.parameters }
-func (m *mockTool) IsReadOnly() bool             { return m.readOnly }
-func (m *mockTool) IsConcurrencySafe() bool      { return false }
+func (m *mockTool) Description() string         { return m.description }
+func (m *mockTool) Parameters() json.RawMessage { return m.parameters }
+func (m *mockTool) IsReadOnly() bool            { return m.readOnly }
+func (m *mockTool) IsConcurrencySafe() bool     { return false }
 func (m *mockTool) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	if m.executeFunc != nil {
 		return m.executeFunc(ctx, args)

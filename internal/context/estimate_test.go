@@ -35,7 +35,7 @@ func TestEstimateTextTokens(t *testing.T) {
 		{
 			name: "japanese text",
 			text: "こんにちは世界",
-			min:  7,  // 7文字 × 1.5 = 10.5
+			min:  7, // 7文字 × 1.5 = 10.5
 			max:  15,
 		},
 		{
@@ -137,14 +137,14 @@ func TestIsCJK(t *testing.T) {
 		r    rune
 		want bool
 	}{
-		{'あ', true},   // ひらがな
-		{'ア', true},   // カタカナ
-		{'漢', true},   // 漢字
-		{'한', true},   // ハングル
-		{'A', false},   // ASCII
-		{'1', false},   // 数字
-		{' ', false},   // スペース
-		{'é', false},   // ラテン拡張
+		{'あ', true},  // ひらがな
+		{'ア', true},  // カタカナ
+		{'漢', true},  // 漢字
+		{'한', true},  // ハングル
+		{'A', false}, // ASCII
+		{'1', false}, // 数字
+		{' ', false}, // スペース
+		{'é', false}, // ラテン拡張
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.r), func(t *testing.T) {

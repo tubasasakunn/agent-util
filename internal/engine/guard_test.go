@@ -72,10 +72,10 @@ func (m *mockOutputGuard) CheckOutput(_ context.Context, _ string) (*GuardResult
 
 func TestGuardRegistry_RunInput(t *testing.T) {
 	tests := []struct {
-		name     string
-		guards   []*mockInputGuard
-		wantDec  GuardDecision
-		wantSub  string
+		name    string
+		guards  []*mockInputGuard
+		wantDec GuardDecision
+		wantSub string
 	}{
 		{
 			name:    "no guards returns allow",

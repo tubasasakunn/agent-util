@@ -17,13 +17,13 @@ import (
 // brokenTool は常にエラーを返すツール。
 type brokenTool struct{}
 
-func (t *brokenTool) Name() string             { return "broken_tool" }
-func (t *brokenTool) Description() string       { return "A tool that always fails (for testing)" }
+func (t *brokenTool) Name() string        { return "broken_tool" }
+func (t *brokenTool) Description() string { return "A tool that always fails (for testing)" }
 func (t *brokenTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`)
 }
-func (t *brokenTool) IsReadOnly() bool          { return true }
-func (t *brokenTool) IsConcurrencySafe() bool   { return false }
+func (t *brokenTool) IsReadOnly() bool        { return true }
+func (t *brokenTool) IsConcurrencySafe() bool { return false }
 func (t *brokenTool) Execute(_ context.Context, _ json.RawMessage) (tool.Result, error) {
 	return tool.Result{}, errors.New("this tool always fails")
 }

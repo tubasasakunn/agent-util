@@ -49,11 +49,11 @@ type mockTool struct {
 	executeFunc func(context.Context, json.RawMessage) (tool.Result, error)
 }
 
-func (t *mockTool) Name() string                     { return t.name }
-func (t *mockTool) Description() string              { return t.description }
-func (t *mockTool) Parameters() json.RawMessage       { return t.parameters }
-func (t *mockTool) IsReadOnly() bool                  { return true }
-func (t *mockTool) IsConcurrencySafe() bool           { return true }
+func (t *mockTool) Name() string                { return t.name }
+func (t *mockTool) Description() string         { return t.description }
+func (t *mockTool) Parameters() json.RawMessage { return t.parameters }
+func (t *mockTool) IsReadOnly() bool            { return true }
+func (t *mockTool) IsConcurrencySafe() bool     { return true }
 func (t *mockTool) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	if t.executeFunc != nil {
 		return t.executeFunc(ctx, args)
@@ -437,7 +437,9 @@ func TestScenario9_E2E_PromptBuilderWithToolExecution(t *testing.T) {
 		description: "Echoes a message",
 		parameters:  json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`),
 		executeFunc: func(_ context.Context, args json.RawMessage) (tool.Result, error) {
-			var a struct{ Message string `json:"message"` }
+			var a struct {
+				Message string `json:"message"`
+			}
 			json.Unmarshal(args, &a)
 			return tool.Result{Content: "Echo: " + a.Message}, nil
 		},

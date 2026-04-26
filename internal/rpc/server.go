@@ -19,9 +19,9 @@ type HandlerFunc func(ctx context.Context, params json.RawMessage) (any, *protoc
 
 // Server は JSON-RPC over stdio のサーバー。
 type Server struct {
-	reader  io.Reader
-	writer  io.Writer
-	logw    io.Writer
+	reader io.Reader
+	writer io.Writer
+	logw   io.Writer
 
 	mu       sync.Mutex // stdout 書き込みの排他制御
 	handlers map[string]HandlerFunc
@@ -102,9 +102,9 @@ func (s *Server) Serve(ctx context.Context) error {
 func (s *Server) dispatch(ctx context.Context, line []byte) {
 	// method フィールドの有無で Request/Response を判別
 	var probe struct {
-		Method *string         `json:"method"`
-		ID     *int            `json:"id"`
-		Result json.RawMessage `json:"result"`
+		Method *string            `json:"method"`
+		ID     *int               `json:"id"`
+		Result json.RawMessage    `json:"result"`
 		Error  *protocol.RPCError `json:"error"`
 	}
 	if err := json.Unmarshal(line, &probe); err != nil {

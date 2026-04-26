@@ -1,10 +1,11 @@
 // ストリーミング通知配線の実機SLLM検証
 //
 // 検証シナリオ:
-//   A: streaming.enabled=true で agent.run → stream.delta が複数受信される
-//   B: streaming.context_status=true で agent.run → context.status が複数発火する
-//   C: streaming を未設定（デフォルト）の場合 stream.delta は受信されない
-//   D: ContextStatus が縮約発生時にも発火する（小さい token_limit + 長いプロンプト）
+//
+//	A: streaming.enabled=true で agent.run → stream.delta が複数受信される
+//	B: streaming.context_status=true で agent.run → context.status が複数発火する
+//	C: streaming を未設定（デフォルト）の場合 stream.delta は受信されない
+//	D: ContextStatus が縮約発生時にも発火する（小さい token_limit + 長いプロンプト）
 //
 // 使い方:
 //

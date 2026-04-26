@@ -2,6 +2,7 @@
 
 SLLM（小さい LLM）を動かすエージェントハーネスを Go で構築するプロジェクト。
 
+[![CI](https://github.com/tubasasakunn/ai-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tubasasakunn/ai-agent/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.25.1-00ADD8?logo=go)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-alpha-orange)](docs/VERSIONING.md)

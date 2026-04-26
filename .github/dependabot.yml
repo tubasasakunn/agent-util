@@ -1,0 +1,61 @@
+version: 2
+updates:
+  # Go modules at the repository root.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(go)"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # Python SDK.
+  - package-ecosystem: "pip"
+    directory: "/sdk/python"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(py)"
+    labels:
+      - "dependencies"
+      - "python"
+
+  # TypeScript SDK.
+  - package-ecosystem: "npm"
+    directory: "/sdk/js"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(js)"
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  # GitHub Actions versions in .github/workflows/.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(actions)"
+    labels:
+      - "dependencies"
+      - "github-actions"

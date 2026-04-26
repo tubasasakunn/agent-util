@@ -17,13 +17,13 @@ import (
 
 type echoTool struct{}
 
-func (t *echoTool) Name() string             { return "echo" }
-func (t *echoTool) Description() string       { return "Echoes the input text back exactly as provided" }
+func (t *echoTool) Name() string        { return "echo" }
+func (t *echoTool) Description() string { return "Echoes the input text back exactly as provided" }
 func (t *echoTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string","description":"Text to echo back"}},"required":["text"]}`)
 }
-func (t *echoTool) IsReadOnly() bool          { return true }
-func (t *echoTool) IsConcurrencySafe() bool   { return true }
+func (t *echoTool) IsReadOnly() bool        { return true }
+func (t *echoTool) IsConcurrencySafe() bool { return true }
 func (t *echoTool) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
 	var params struct {
 		Text string `json:"text"`

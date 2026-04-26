@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 // Phase 9 実機検証: REPLモードでの非ReadOnlyツールのパーミッション確認フロー
@@ -30,10 +31,12 @@ import (
 // writeEcho は IsReadOnly=false の echoツール（テスト用）。
 type writeEcho struct{}
 
-func (t *writeEcho) Name() string            { return "write_echo" }
-func (t *writeEcho) Description() string      { return "Echoes a message (simulates a write operation for testing permissions)" }
-func (t *writeEcho) IsReadOnly() bool         { return false }
-func (t *writeEcho) IsConcurrencySafe() bool  { return true }
+func (t *writeEcho) Name() string { return "write_echo" }
+func (t *writeEcho) Description() string {
+	return "Echoes a message (simulates a write operation for testing permissions)"
+}
+func (t *writeEcho) IsReadOnly() bool        { return false }
+func (t *writeEcho) IsConcurrencySafe() bool { return true }
 func (t *writeEcho) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
@@ -44,7 +47,9 @@ func (t *writeEcho) Parameters() json.RawMessage {
 	}`)
 }
 func (t *writeEcho) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
-	var a struct{ Message string `json:"message"` }
+	var a struct {
+		Message string `json:"message"`
+	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return tool.Result{Content: "invalid arguments", IsError: true}, nil
 	}

@@ -632,4 +632,3 @@ func TestDelegateDisabled_FallsThrough(t *testing.T) {
 		t.Errorf("response = %q", result.Response)
 	}
 }
-

@@ -1,9 +1,10 @@
 // Phase 12: ラッパー側カスタムガード/Verifier の逆方向呼び出し検証
 //
 // シナリオ:
-//   A: guard.register で remote input guard を登録 → agent.configure で参照 → run でブロックされる
-//   B: verifier.register でリモート verifier を登録 → ツール結果を検証 → 失敗時に検証ループ
-//   C: リモートガードのタイムアウト → fail-closed で deny
+//
+//	A: guard.register で remote input guard を登録 → agent.configure で参照 → run でブロックされる
+//	B: verifier.register でリモート verifier を登録 → ツール結果を検証 → 失敗時に検証ループ
+//	C: リモートガードのタイムアウト → fail-closed で deny
 //
 // 使い方:
 //
@@ -323,9 +324,9 @@ func runScenarios(binary string, env []string) []ScenarioResult {
 
 		guardCalls := c.GuardCalls()
 		raw := map[string]any{
-			"guard_calls":  len(guardCalls),
-			"reason":       ar.Reason,
-			"response":     ar.Response,
+			"guard_calls": len(guardCalls),
+			"reason":      ar.Reason,
+			"response":    ar.Response,
 		}
 		if len(guardCalls) == 0 {
 			return false, "guard.execute was not invoked", raw
@@ -398,7 +399,7 @@ func runScenarios(binary string, env []string) []ScenarioResult {
 
 		// configure
 		if _, err := c.Call("agent.configure", map[string]any{
-			"max_turns":    3,
+			"max_turns":     3,
 			"system_prompt": "You must call the echo tool to satisfy the user's request.",
 			"verify": map[string]any{
 				"verifiers":        []string{"wrapper_audit"},

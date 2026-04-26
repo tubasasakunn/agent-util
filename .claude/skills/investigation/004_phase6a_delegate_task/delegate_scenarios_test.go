@@ -58,11 +58,13 @@ type readFileTool struct {
 	content string // Execute で返す内容
 }
 
-func (t *readFileTool) Name() string               { return "read_file" }
-func (t *readFileTool) Description() string         { return "Read a file" }
-func (t *readFileTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`) }
-func (t *readFileTool) IsReadOnly() bool            { return true }
-func (t *readFileTool) IsConcurrencySafe() bool     { return true }
+func (t *readFileTool) Name() string        { return "read_file" }
+func (t *readFileTool) Description() string { return "Read a file" }
+func (t *readFileTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`)
+}
+func (t *readFileTool) IsReadOnly() bool        { return true }
+func (t *readFileTool) IsConcurrencySafe() bool { return true }
 func (t *readFileTool) Execute(_ context.Context, _ json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: t.content}, nil
 }

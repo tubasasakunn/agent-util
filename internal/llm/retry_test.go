@@ -36,12 +36,12 @@ func TestCalcBackoff(t *testing.T) {
 		minWait time.Duration
 		maxWait time.Duration
 	}{
-		{0, 750 * time.Millisecond, 1250 * time.Millisecond},   // 1s ± 25%
-		{1, 1500 * time.Millisecond, 2500 * time.Millisecond},  // 2s ± 25%
-		{2, 3 * time.Second, 5 * time.Second},                  // 4s ± 25%
-		{3, 6 * time.Second, 10 * time.Second},                 // 8s ± 25%
-		{5, 24 * time.Second, 40 * time.Second},                // 32s ± 25% (cap)
-		{10, 24 * time.Second, 40 * time.Second},               // 32s cap
+		{0, 750 * time.Millisecond, 1250 * time.Millisecond},  // 1s ± 25%
+		{1, 1500 * time.Millisecond, 2500 * time.Millisecond}, // 2s ± 25%
+		{2, 3 * time.Second, 5 * time.Second},                 // 4s ± 25%
+		{3, 6 * time.Second, 10 * time.Second},                // 8s ± 25%
+		{5, 24 * time.Second, 40 * time.Second},               // 32s ± 25% (cap)
+		{10, 24 * time.Second, 40 * time.Second},              // 32s cap
 	}
 	for _, tt := range tests {
 		// ジッタがあるため100回実行して範囲内か確認

@@ -45,13 +45,13 @@ func chatResp(content string) *llm.ChatResponse {
 
 type largeTool struct{}
 
-func (t *largeTool) Name() string             { return "read_file" }
-func (t *largeTool) Description() string       { return "Read a file" }
+func (t *largeTool) Name() string        { return "read_file" }
+func (t *largeTool) Description() string { return "Read a file" }
 func (t *largeTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`)
 }
-func (t *largeTool) IsReadOnly() bool          { return true }
-func (t *largeTool) IsConcurrencySafe() bool   { return false }
+func (t *largeTool) IsReadOnly() bool        { return true }
+func (t *largeTool) IsConcurrencySafe() bool { return false }
 func (t *largeTool) Execute(_ context.Context, _ json.RawMessage) (tool.Result, error) {
 	// 5000文字のファイル内容を返す（8Kコンテキストの大部分を消費）
 	content := strings.Repeat("line of code with some content\n", 167) // ~5010 chars

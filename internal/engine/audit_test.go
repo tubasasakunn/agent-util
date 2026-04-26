@@ -10,9 +10,9 @@ import (
 
 func TestAuditLogger_Log(t *testing.T) {
 	tests := []struct {
-		name     string
-		entry    AuditEntry
-		wantSub  string // 出力に含まれるべき文字列
+		name    string
+		entry   AuditEntry
+		wantSub string // 出力に含まれるべき文字列
 	}{
 		{
 			name: "allowed decision",

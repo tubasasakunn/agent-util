@@ -20,7 +20,7 @@ func NewMCPTool(info ToolInfo, client *Client) *MCPTool {
 	return &MCPTool{info: info, client: client}
 }
 
-func (t *MCPTool) Name() string           { return t.info.Name }
+func (t *MCPTool) Name() string            { return t.info.Name }
 func (t *MCPTool) Description() string     { return t.info.Description }
 func (t *MCPTool) IsReadOnly() bool        { return false }
 func (t *MCPTool) IsConcurrencySafe() bool { return false }

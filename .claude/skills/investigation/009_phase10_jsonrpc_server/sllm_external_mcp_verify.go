@@ -28,7 +28,7 @@ type Response struct {
 	ID *int `json:"id"`
 }
 
-func intPtr(n int) *int { return &n }
+func intPtr(n int) *int                 { return &n }
 func mustMarshal(v any) json.RawMessage { data, _ := json.Marshal(v); return data }
 
 func sendReq(w interface{ Write([]byte) (int, error) }, req Request) {

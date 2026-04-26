@@ -288,10 +288,10 @@ func TestSnip_InsertsMarker(t *testing.T) {
 func TestSnip_ToolCallPairIntegrity(t *testing.T) {
 	entries := []entry{
 		makeEntry("user", "old"),
-		makeToolCallEntry("call_1", "read_file"),  // index 1
-		makeToolEntry("call_1", "file content"),    // index 2
-		makeEntry("user", "new question"),           // index 3
-		makeEntry("assistant", "answer"),             // index 4
+		makeToolCallEntry("call_1", "read_file"), // index 1
+		makeToolEntry("call_1", "file content"),  // index 2
+		makeEntry("user", "new question"),        // index 3
+		makeEntry("assistant", "answer"),         // index 4
 	}
 	// keepLast=2 → 保護開始: index 3
 	// tool (index 2) と assistant(call_1) (index 1) は両方保護外 → ペアごと削除
@@ -311,12 +311,12 @@ func TestSnip_ToolCallPairIntegrity(t *testing.T) {
 
 func TestSnip_BoundaryAdjustment(t *testing.T) {
 	entries := []entry{
-		makeEntry("user", "old question"),            // index 0
-		makeEntry("assistant", "old answer"),          // index 1
-		makeToolCallEntry("call_1", "read_file"),     // index 2
-		makeToolEntry("call_1", "file content"),      // index 3
-		makeEntry("user", "new question"),             // index 4
-		makeEntry("assistant", "new answer"),          // index 5
+		makeEntry("user", "old question"),        // index 0
+		makeEntry("assistant", "old answer"),     // index 1
+		makeToolCallEntry("call_1", "read_file"), // index 2
+		makeToolEntry("call_1", "file content"),  // index 3
+		makeEntry("user", "new question"),        // index 4
+		makeEntry("assistant", "new answer"),     // index 5
 	}
 	// keepLast=3 → 初期保護開始: index 3 (tool)
 	// index 3 は tool で対応 assistant は index 2

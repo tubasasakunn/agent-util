@@ -16,10 +16,10 @@ type stubTool struct {
 }
 
 func (s *stubTool) Name() string                { return s.name }
-func (s *stubTool) Description() string          { return s.description }
-func (s *stubTool) Parameters() json.RawMessage  { return s.parameters }
-func (s *stubTool) IsReadOnly() bool             { return s.readOnly }
-func (s *stubTool) IsConcurrencySafe() bool      { return s.concurrencySafe }
+func (s *stubTool) Description() string         { return s.description }
+func (s *stubTool) Parameters() json.RawMessage { return s.parameters }
+func (s *stubTool) IsReadOnly() bool            { return s.readOnly }
+func (s *stubTool) IsConcurrencySafe() bool     { return s.concurrencySafe }
 func (s *stubTool) Execute(_ context.Context, _ json.RawMessage) (Result, error) {
 	return Result{Content: "stub"}, nil
 }

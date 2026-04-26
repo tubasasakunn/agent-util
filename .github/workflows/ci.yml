@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    name: Go (test + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: "1"
+      GO_TEST_FLAGS: "-race -count=1 -v"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Print Go version
+        run: go version
+
+      - name: Download modules
+        run: go mod download
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt (no diffs allowed)
+        run: |
+          # `gofmt -l` lists files that need formatting; fail if any are found.
+          set -euo pipefail
+          gofmt -l . | tee /tmp/gofmt.out
+          if [ -s /tmp/gofmt.out ]; then
+            echo "::error::The above files are not gofmt-clean. Run 'gofmt -w .' locally."
+            exit 1
+          fi
+
+      - name: go test
+        run: go test ./... ${{ env.GO_TEST_FLAGS }}
+
+      - name: go build (cmd/agent)
+        run: go build -v ./cmd/agent/
+
+  python-sdk:
+    name: Python SDK (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: sdk/python/pyproject.toml
+
+      - name: Install SDK with test extras
+        working-directory: sdk/python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Run pytest
+        working-directory: sdk/python
+        # E2E tests that need an `agent` binary auto-skip when AGENT_BINARY is unset.
+        run: python -m pytest -v --color=yes
+
+  js-sdk:
+    name: JS SDK (node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          # No package-lock.json is checked in (see .gitignore), so leave the
+          # built-in npm cache off rather than pointing it at a missing lockfile.
+
+      - name: npm install
+        working-directory: sdk/js
+        run: npm install --no-audit --no-fund
+
+      - name: Lint (tsc --noEmit)
+        working-directory: sdk/js
+        run: npm run lint
+
+      - name: Build (tsc)
+        working-directory: sdk/js
+        run: npm run build
+
+      - name: Test (vitest)
+        working-directory: sdk/js
+        # E2E tests that need an AGENT_BINARY skip when it is unset.
+        run: npm test -- --reporter=verbose
+
+  openrpc-validate:
+    name: OpenRPC / JSON Schema validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install jsonschema
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema
+
+      - name: Validate JSON syntax for openrpc.json
+        run: |
+          set -euo pipefail
+          python -m json.tool < docs/openrpc.json > /dev/null
+          echo "ok: docs/openrpc.json"
+
+      - name: Validate JSON syntax for all docs/schemas/*.json
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in docs/schemas/*.json; do
+            python -m json.tool < "$f" > /dev/null
+            echo "ok: $f"
+          done
+
+      - name: Set up Node.js (for OpenRPC schema-utils-js)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: OpenRPC schema conformance (npx @open-rpc/schema-utils-js)
+        # Soft check: keep going even if the upstream tool fails so we do not
+        # block PRs on third-party churn.
+        continue-on-error: true
+        run: |
+          npx --yes @open-rpc/schema-utils-js@latest validate --schema=docs/openrpc.json
+
+  markdown-links:
+    name: Markdown link check (warning only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check relative links in Markdown
+        run: python scripts/check_md_links.py
