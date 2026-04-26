@@ -22,6 +22,14 @@ func newTestHandlers(t *testing.T, comp llm.Completer, opts ...engine.Option) *H
 	return NewHandlers(eng, srv)
 }
 
+// newTestHandlersWithServer は呼び出し側が用意した Server を使って Handlers を生成する。
+// stream.delta / context.status 通知を観測したいテストで使用する。
+func newTestHandlersWithServer(t *testing.T, comp llm.Completer, srv *Server, opts ...engine.Option) *Handlers {
+	t.Helper()
+	eng := engine.New(comp, opts...)
+	return NewHandlers(eng, srv)
+}
+
 func mustJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -296,6 +304,9 @@ func TestHandlers_AgentConfigure_AllFeaturesAtOnce(t *testing.T) {
 		Reminder: &protocol.ReminderConfig{
 			Threshold: intp(10), Content: "簡潔に",
 		},
+		Streaming: &protocol.StreamingConfig{
+			Enabled: boolp(true), ContextStatus: boolp(true),
+		},
 	})
 	res, rpcErr := h.handleAgentConfigure(context.Background(), cfg)
 	if rpcErr != nil {
@@ -305,7 +316,7 @@ func TestHandlers_AgentConfigure_AllFeaturesAtOnce(t *testing.T) {
 	want := []string{
 		"max_turns", "system_prompt", "token_limit",
 		"delegate", "coordinator", "compaction",
-		"permission", "guards", "verify", "tool_scope", "reminder",
+		"permission", "guards", "verify", "tool_scope", "reminder", "streaming",
 	}
 	if !equalStringSlices(r.Applied, want) {
 		t.Errorf("Applied = %v, want %v", r.Applied, want)

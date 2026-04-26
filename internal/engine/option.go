@@ -36,6 +36,9 @@ type engineConfig struct {
 	toolCallGuards         []ToolCallGuard
 	outputGuards           []OutputGuard
 	stepCallback           StepCallback
+	streamingEnabled       bool
+	streamCallback         StreamCallback
+	contextStatusCallback  ContextStatusCallback
 }
 
 // StepEvent はエージェントループの各ステップ完了時に発火するイベント。
@@ -50,6 +53,13 @@ type StepEvent struct {
 
 // StepCallback はステップ完了時のコールバック関数型。
 type StepCallback func(StepEvent)
+
+// StreamCallback はトークン差分を受け取るコールバック関数型。
+// turn は1始まりのターン番号、delta はモデルが新たに生成したテキスト断片。
+type StreamCallback func(delta string, turn int)
+
+// ContextStatusCallback はコンテキスト使用率の変化を受け取るコールバック関数型。
+type ContextStatusCallback func(ratio float64, count, limit int)
 
 const defaultSystemPrompt = "You are a helpful assistant."
 
@@ -242,4 +252,23 @@ func WithOutputGuards(guards ...OutputGuard) Option {
 // JSON-RPC サーバーモードでストリーミング通知に使用する。
 func WithStepCallback(cb StepCallback) Option {
 	return func(c *engineConfig) { c.stepCallback = cb }
+}
+
+// WithStreaming はトークンストリーミングを有効化する。
+// 有効時は chatStep / routerStep が ChatCompletionStream を使用する。
+// completer が StreamingCompleter を実装していない場合はフォールバックして通常の補完を使う。
+func WithStreaming(enabled bool) Option {
+	return func(c *engineConfig) { c.streamingEnabled = enabled }
+}
+
+// WithStreamCallback はトークン差分受信時のコールバックを設定する。
+// JSON-RPC サーバーモードで stream.delta 通知の送信に使用する。
+func WithStreamCallback(cb StreamCallback) Option {
+	return func(c *engineConfig) { c.streamCallback = cb }
+}
+
+// WithContextStatusCallback はコンテキスト使用率変化時のコールバックを設定する。
+// 各ターン開始時と縮約完了時に発火する。
+func WithContextStatusCallback(cb ContextStatusCallback) Option {
+	return func(c *engineConfig) { c.contextStatusCallback = cb }
 }

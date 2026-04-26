@@ -10,6 +10,7 @@ type ChatRequest struct {
 	MaxTokens      *int            `json:"max_tokens,omitempty"`
 	Tools          []Tool          `json:"tools,omitempty"`
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+	Stream         bool            `json:"stream,omitempty"`
 }
 
 // Message はチャットメッセージ。

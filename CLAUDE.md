@@ -35,6 +35,7 @@ pkg/tool/        — Tool interface、スキーマ定義
 - ADR-011: PromptBuilderによるセクションベースのプロンプト構成を採用
 - ADR-012: 権限とガードレールにPermissionChecker+GuardRegistryの2層分離パターンを採用
 - ADR-013: JSON-RPCサーバーにRemoteToolアダプタ+PendingRequestsパターンを採用
+- ADR-014: ストリーミング通知の配線にStreamingCompleter別インターフェース＋Engineコールバックを採用
 
 詳細は `/decision list` で確認。
 

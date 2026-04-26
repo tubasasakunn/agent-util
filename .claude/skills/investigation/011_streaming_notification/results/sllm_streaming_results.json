@@ -1,0 +1,101 @@
+{
+  "timestamp": "2026-04-26T10:05:43+09:00",
+  "endpoint": "http://localhost:8080/v1/chat/completions",
+  "results": [
+    {
+      "name": "A: streaming.enabled emits stream.delta",
+      "pass": true,
+      "details": "delta_count=3 ends=1 response=\"Hello world!\" first_deltas=[Hello  world !]",
+      "duration_ms": "2651",
+      "raw": {
+        "delta_count": 3,
+        "end_events": [
+          {
+            "reason": "completed",
+            "turns": 1
+          }
+        ],
+        "first_deltas": [
+          "Hello",
+          " world",
+          "!"
+        ],
+        "response": "Hello world!"
+      }
+    },
+    {
+      "name": "B: streaming.context_status emits context.status",
+      "pass": true,
+      "details": "status_count=2",
+      "duration_ms": "595",
+      "raw": {
+        "first_status": [
+          {
+            "token_count": 727,
+            "token_limit": 8192,
+            "usage_ratio": 0.0887451171875
+          },
+          {
+            "token_count": 727,
+            "token_limit": 8192,
+            "usage_ratio": 0.0887451171875
+          }
+        ],
+        "status_count": 2
+      }
+    },
+    {
+      "name": "C: streaming default off → no stream.delta",
+      "pass": true,
+      "details": "no stream.delta (correct), end_count=1",
+      "duration_ms": "516",
+      "raw": {
+        "delta_count": 0,
+        "end_count": 1,
+        "status_count": 0
+      }
+    },
+    {
+      "name": "D: context.status fires across compaction",
+      "pass": true,
+      "details": "6 status events, ratio drop observed (compaction emitted status)",
+      "duration_ms": "1641",
+      "raw": {
+        "ratio_drop": true,
+        "sample": [
+          {
+            "token_count": 1330,
+            "token_limit": 1024,
+            "usage_ratio": 1.298828125
+          },
+          {
+            "token_count": 1330,
+            "token_limit": 1024,
+            "usage_ratio": 1.298828125
+          },
+          {
+            "token_count": 1330,
+            "token_limit": 1024,
+            "usage_ratio": 1.298828125
+          },
+          {
+            "token_count": 1391,
+            "token_limit": 1024,
+            "usage_ratio": 1.3583984375
+          },
+          {
+            "token_count": 1391,
+            "token_limit": 1024,
+            "usage_ratio": 1.3583984375
+          },
+          {
+            "token_count": 795,
+            "token_limit": 1024,
+            "usage_ratio": 0.7763671875
+          }
+        ],
+        "status_count": 6
+      }
+    }
+  ]
+}

@@ -20,11 +20,12 @@ type routerResponse struct {
 // ルーターはJSON modeでLLMを呼び出し、どのツールを使うか（または使わないか）を判断する。
 func (e *Engine) routerStep(ctx context.Context) (*routerResponse, *llm.Usage, error) {
 	msgs := e.buildRouterMessages()
-
-	resp, err := e.completer.ChatCompletion(ctx, &llm.ChatRequest{
+	req := &llm.ChatRequest{
 		Messages:       msgs,
 		ResponseFormat: &llm.ResponseFormat{Type: "json_object"},
-	})
+	}
+
+	resp, err := e.complete(ctx, req, 0)
 	if err != nil {
 		return nil, nil, fmt.Errorf("router step: %w", err)
 	}

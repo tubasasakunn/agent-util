@@ -11,8 +11,9 @@ import (
 
 // rebuildEngine は現在の Engine を agent.configure の差分パラメータで再構築する。
 // 既存の tools / 履歴 / Completer / LogWriter は引き継がれる。
+// notifier 経由のストリーミング設定もここで反映する。
 // 設定済みフィールドは applied に追加される。
-func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams) (*engine.Engine, []string, error) {
+func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifier *Notifier) (*engine.Engine, []string, error) {
 	var applied []string
 	opts := []engine.Option{
 		engine.WithLogWriter(prev.LogWriter()),
@@ -171,6 +172,29 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams) (*engi
 			}))
 		}
 		applied = append(applied, "reminder")
+	}
+
+	if p.Streaming != nil {
+		streamEnabled := false
+		if p.Streaming.Enabled != nil {
+			streamEnabled = *p.Streaming.Enabled
+		}
+		opts = append(opts, engine.WithStreaming(streamEnabled))
+		if streamEnabled && notifier != nil {
+			opts = append(opts, engine.WithStreamCallback(func(delta string, turn int) {
+				_ = notifier.StreamDelta(delta, turn)
+			}))
+		}
+		statusEnabled := false
+		if p.Streaming.ContextStatus != nil {
+			statusEnabled = *p.Streaming.ContextStatus
+		}
+		if statusEnabled && notifier != nil {
+			opts = append(opts, engine.WithContextStatusCallback(func(ratio float64, count, limit int) {
+				_ = notifier.ContextStatus(ratio, count, limit)
+			}))
+		}
+		applied = append(applied, "streaming")
 	}
 
 	tools := prev.Tools()

@@ -34,6 +34,9 @@ type Engine struct {
 	permChecker            *PermissionChecker // nil なら全許可（後方互換）
 	guards                 *GuardRegistry     // nil ならガードなし（後方互換）
 	stepCallback           StepCallback       // nil ならコールバックなし
+	streamingEnabled       bool
+	streamCallback         StreamCallback
+	contextStatusCallback  ContextStatusCallback
 }
 
 // New は Engine を生成する。
@@ -98,6 +101,9 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 		permChecker:            permChecker,
 		guards:                 guards,
 		stepCallback:           cfg.stepCallback,
+		streamingEnabled:       cfg.streamingEnabled,
+		streamCallback:         cfg.streamCallback,
+		contextStatusCallback:  cfg.contextStatusCallback,
 	}
 
 	// PromptBuilder を初期化
@@ -254,6 +260,7 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 	e.ctxManager.Add(UserMessage(input))
 	e.logf("[context] %d/%d tokens (%.0f%%)",
 		e.ctxManager.TokenCount(), e.ctxManager.TokenLimit(), e.ctxManager.UsageRatio()*100)
+	e.emitContextStatus()
 
 	var totalUsage llm.Usage
 	var stepRetries int
@@ -266,7 +273,9 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 		default:
 		}
 
-		lr, err := e.step(ctx)
+		e.emitContextStatus()
+
+		lr, err := e.stepWithTurn(ctx, turn+1)
 		if err != nil {
 			class := classifyError(err)
 			switch class {
@@ -358,14 +367,20 @@ func isFailureReason(reason string) bool {
 // step は1ターンのモデル呼び出しを実行し、LoopResult を返す。
 // ツールが登録されている場合はルーターステップを経由する。
 func (e *Engine) step(ctx context.Context) (*LoopResult, error) {
+	return e.stepWithTurn(ctx, 0)
+}
+
+// stepWithTurn は turn 番号を引き回して1ステップを実行する。
+// turn は streaming コールバックに渡される（0 は未指定）。
+func (e *Engine) stepWithTurn(ctx context.Context, turn int) (*LoopResult, error) {
 	if err := e.maybeCompact(ctx); err != nil {
 		return nil, fmt.Errorf("compaction: %w", err)
 	}
 
 	if e.registry.Len() == 0 {
-		return e.chatStep(ctx)
+		return e.chatStep(ctx, turn)
 	}
-	return e.toolStep(ctx)
+	return e.toolStep(ctx, turn)
 }
 
 // maybeCompact は閾値超過時に縮約カスケードを実行する。
@@ -385,17 +400,75 @@ func (e *Engine) maybeCompact(ctx context.Context) error {
 	after := e.ctxManager.TokenCount()
 	e.logf("[context] compaction complete: %d → %d tokens (%.0f%%)",
 		before, after, e.ctxManager.UsageRatio()*100)
+	e.emitContextStatus()
 	return nil
 }
 
+// emitContextStatus は contextStatusCallback が設定されていれば現在のコンテキスト使用率を通知する。
+func (e *Engine) emitContextStatus() {
+	if e.contextStatusCallback == nil {
+		return
+	}
+	e.contextStatusCallback(
+		e.ctxManager.UsageRatio(),
+		e.ctxManager.TokenCount(),
+		e.ctxManager.TokenLimit(),
+	)
+}
+
+// complete はストリーミング設定とコールバック有無に応じて補完を実行する。
+// streaming 有効かつ completer が StreamingCompleter で streamCallback が設定されている場合のみ
+// ストリーム経路を使う。それ以外は通常の ChatCompletion を呼ぶ。
+// 戻り値は ChatResponse 形式に集約される（履歴追加・usage 集計の互換のため）。
+func (e *Engine) complete(ctx context.Context, req *llm.ChatRequest, turn int) (*llm.ChatResponse, error) {
+	if !e.streamingEnabled || e.streamCallback == nil {
+		return e.completer.ChatCompletion(ctx, req)
+	}
+	streamer, ok := e.completer.(llm.StreamingCompleter)
+	if !ok {
+		return e.completer.ChatCompletion(ctx, req)
+	}
+
+	ch, err := streamer.ChatCompletionStream(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("stream start: %w", err)
+	}
+
+	var sb strings.Builder
+	var finishReason string
+	for evt := range ch {
+		if evt.Err != nil {
+			return nil, fmt.Errorf("stream event: %w", evt.Err)
+		}
+		if evt.Delta != "" {
+			sb.WriteString(evt.Delta)
+			e.streamCallback(evt.Delta, turn)
+		}
+		if evt.FinishReason != "" {
+			finishReason = evt.FinishReason
+		}
+	}
+
+	full := sb.String()
+	return &llm.ChatResponse{
+		Choices: []llm.Choice{
+			{
+				Index:        0,
+				Message:      llm.Message{Role: "assistant", Content: llm.StringPtr(full)},
+				FinishReason: finishReason,
+			},
+		},
+	}, nil
+}
+
 // chatStep は通常のチャット補完（Phase 2互換）。
-func (e *Engine) chatStep(ctx context.Context) (*LoopResult, error) {
+// turn は streaming コールバックに渡されるターン番号（0 は未指定）。
+func (e *Engine) chatStep(ctx context.Context, turn int) (*LoopResult, error) {
 	e.logf("[chat] 応答を生成中...")
 	msgs := e.buildMessages()
+	req := &llm.ChatRequest{Messages: msgs}
 
-	resp, err := e.completer.ChatCompletion(ctx, &llm.ChatRequest{
-		Messages: msgs,
-	})
+	resp, err := e.complete(ctx, req, turn)
 	if err != nil {
 		return nil, fmt.Errorf("chat completion: %w", err)
 	}
@@ -437,7 +510,7 @@ func (e *Engine) chatStep(ctx context.Context) (*LoopResult, error) {
 }
 
 // toolStep はルーターステップ + ツール実行。
-func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
+func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
 	// 1. ルーターでツール選択
 	e.logf("[router] ツールを選択中...")
 	rr, usage, err := e.routerStep(ctx)
@@ -448,7 +521,7 @@ func (e *Engine) toolStep(ctx context.Context) (*LoopResult, error) {
 	// 2. tool == "none" → 通常チャットで最終応答を生成
 	if rr.Tool == "none" {
 		e.logf("[router] ツール不要 → 直接応答 (%s)", rr.Reasoning)
-		lr, err := e.chatStep(ctx)
+		lr, err := e.chatStep(ctx, turn)
 		if err != nil {
 			return nil, err
 		}

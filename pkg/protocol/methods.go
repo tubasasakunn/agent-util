@@ -69,6 +69,7 @@ type AgentConfigureParams struct {
 	Verify      *VerifyConfig      `json:"verify,omitempty"`
 	ToolScope   *ToolScopeConfig   `json:"tool_scope,omitempty"`
 	Reminder    *ReminderConfig    `json:"reminder,omitempty"`
+	Streaming   *StreamingConfig   `json:"streaming,omitempty"`
 }
 
 // DelegateConfig は delegate_task サブエージェントの設定。
@@ -124,6 +125,13 @@ type ToolScopeConfig struct {
 type ReminderConfig struct {
 	Threshold *int   `json:"threshold,omitempty"`
 	Content   string `json:"content,omitempty"`
+}
+
+// StreamingConfig はストリーミング通知の設定。
+// Enabled が true で stream.delta、ContextStatus が true で context.status の通知を送る。
+type StreamingConfig struct {
+	Enabled       *bool `json:"enabled,omitempty"`
+	ContextStatus *bool `json:"context_status,omitempty"`
 }
 
 // AgentConfigureResult は agent.configure の結果。適用された設定の概要を返す。
