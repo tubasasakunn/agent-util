@@ -1,0 +1,85 @@
+{
+  "timestamp": "2026-04-26T09:39:22+09:00",
+  "endpoint": "http://localhost:8080/v1/chat/completions",
+  "results": [
+    {
+      "name": "A: configure basic fields",
+      "pass": true,
+      "details": "applied: [max_turns system_prompt token_limit]",
+      "duration_ms": "387",
+      "raw": {
+        "applied": [
+          "max_turns",
+          "system_prompt",
+          "token_limit"
+        ]
+      }
+    },
+    {
+      "name": "B: input guard blocks injection",
+      "pass": true,
+      "details": "blocked: Input rejected: potential prompt injection pattern detected",
+      "duration_ms": "7",
+      "raw": {
+        "response": "Input rejected: potential prompt injection pattern detected",
+        "reason": "input_denied"
+      }
+    },
+    {
+      "name": "C: output guard blocks secret",
+      "pass": true,
+      "details": "blocked as expected: I cannot provide that response.",
+      "duration_ms": "3061",
+      "raw": {
+        "response": "I cannot provide that response.",
+        "reason": "output_blocked"
+      }
+    },
+    {
+      "name": "D: permission.deny blocks tool",
+      "pass": true,
+      "details": "tool denial reflected in response: I encountered an issue. The tool `fake_tool` is not allowed by the current policy. Therefore, I cannot fetch data or provide a summary based on that action.",
+      "duration_ms": "7767",
+      "raw": {
+        "response": "I encountered an issue. The tool `fake_tool` is not allowed by the current policy. Therefore, I cannot fetch data or provide a summary based on that action.",
+        "reason": "completed",
+        "turns": 2
+      }
+    },
+    {
+      "name": "E: all features + simple chat",
+      "pass": true,
+      "details": "applied=10 fields, response=テキスト生成ができます。",
+      "duration_ms": "264",
+      "raw": {
+        "applied": [
+          "max_turns",
+          "system_prompt",
+          "token_limit",
+          "delegate",
+          "coordinator",
+          "compaction",
+          "permission",
+          "guards",
+          "verify",
+          "reminder"
+        ],
+        "result": {
+          "response": "テキスト生成ができます。",
+          "reason": "completed",
+          "turns": 1
+        }
+      }
+    },
+    {
+      "name": "F: configure during run is busy",
+      "pass": true,
+      "details": "configure rejected with code=-32002 msg=agent.configure is not allowed while agent.run is in progress",
+      "duration_ms": "3610",
+      "raw": {
+        "code": -32002,
+        "message": "agent.configure is not allowed while agent.run is in progress"
+      }
+    }
+  ]
+}

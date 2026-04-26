@@ -1,2 +1,5 @@
 # Build artifacts
 /agent
+
+# Investigation 用に各検証ディレクトリへビルドされる検証バイナリ
+.claude/skills/investigation/**/agent_test_binary

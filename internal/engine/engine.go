@@ -207,6 +207,26 @@ func (e *Engine) RegisterTool(t tool.Tool) error {
 	return nil
 }
 
+// Tools は登録済みの全ツールを登録順で返す。Engine の再構築で引き継ぐ用途。
+func (e *Engine) Tools() []tool.Tool {
+	return e.registry.Tools()
+}
+
+// History は会話履歴を返す。Engine の再構築で引き継ぐ用途。
+func (e *Engine) History() []llm.Message {
+	return e.ctxManager.Messages()
+}
+
+// Completer は LLM クライアントを返す。Engine の再構築で共有する用途。
+func (e *Engine) Completer() llm.Completer {
+	return e.completer
+}
+
+// LogWriter はログ出力先を返す。Engine の再構築で引き継ぐ用途。
+func (e *Engine) LogWriter() io.Writer {
+	return e.logw
+}
+
 // logf はログメッセージを出力する。logw が nil の場合は何もしない。
 func (e *Engine) logf(format string, args ...any) {
 	if e.logw != nil {

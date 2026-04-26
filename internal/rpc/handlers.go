@@ -14,9 +14,11 @@ import (
 
 // Handlers は全メソッドハンドラをサーバーに登録する。
 type Handlers struct {
-	eng      *engine.Engine
 	server   *Server
 	notifier *Notifier
+
+	engMu sync.Mutex
+	eng   *engine.Engine // agent.configure で差し替えられるため Mutex で保護
 
 	runMu      sync.Mutex
 	runCancel  context.CancelFunc
@@ -36,8 +38,16 @@ func NewHandlers(eng *engine.Engine, server *Server) *Handlers {
 func (h *Handlers) RegisterAll() {
 	h.server.Handle(protocol.MethodAgentRun, h.handleAgentRun)
 	h.server.Handle(protocol.MethodAgentAbort, h.handleAgentAbort)
+	h.server.Handle(protocol.MethodAgentConfigure, h.handleAgentConfigure)
 	h.server.Handle(protocol.MethodToolRegister, h.handleToolRegister)
 	h.server.Handle(protocol.MethodMCPRegister, h.handleMCPRegister)
+}
+
+// Engine は現在保持している Engine を返す。テストや動的差し替えの確認用。
+func (h *Handlers) Engine() *engine.Engine {
+	h.engMu.Lock()
+	defer h.engMu.Unlock()
+	return h.eng
 }
 
 // CloseAll は登録された MCP サーバーを全て終了する。
@@ -75,7 +85,7 @@ func (h *Handlers) handleAgentRun(ctx context.Context, params json.RawMessage) (
 		}
 	}
 
-	result, err := h.eng.Run(runCtx, p.Prompt)
+	result, err := h.Engine().Run(runCtx, p.Prompt)
 	if err != nil {
 		h.notifier.StreamEnd("error", 0)
 		return nil, &protocol.RPCError{
@@ -96,6 +106,39 @@ func (h *Handlers) handleAgentRun(ctx context.Context, params json.RawMessage) (
 			TotalTokens:      result.Usage.TotalTokens,
 		},
 	}, nil
+}
+
+func (h *Handlers) handleAgentConfigure(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	h.runMu.Lock()
+	busy := h.runCancel != nil
+	h.runMu.Unlock()
+	if busy {
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeAgentBusy,
+			Message: "agent.configure is not allowed while agent.run is in progress",
+		}
+	}
+
+	var p protocol.AgentConfigureParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeInvalidParams,
+			Message: "invalid params: " + err.Error(),
+		}
+	}
+
+	h.engMu.Lock()
+	defer h.engMu.Unlock()
+	newEng, applied, err := rebuildEngine(h.eng, &p)
+	if err != nil {
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeInvalidParams,
+			Message: err.Error(),
+		}
+	}
+	h.eng = newEng
+
+	return protocol.AgentConfigureResult{Applied: applied}, nil
 }
 
 func (h *Handlers) handleAgentAbort(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
@@ -128,7 +171,7 @@ func (h *Handlers) handleToolRegister(ctx context.Context, params json.RawMessag
 			ReadOnly:    def.ReadOnly,
 		}
 		rt := NewRemoteTool(td, h.server)
-		if err := h.eng.RegisterTool(rt); err != nil {
+		if err := h.Engine().RegisterTool(rt); err != nil {
 			return nil, &protocol.RPCError{
 				Code:    protocol.ErrCodeInvalidParams,
 				Message: fmt.Sprintf("register tool %q: %s", def.Name, err.Error()),
@@ -169,7 +212,7 @@ func (h *Handlers) handleMCPRegister(ctx context.Context, params json.RawMessage
 
 	names := make([]string, 0, len(tools))
 	for _, t := range tools {
-		if err := h.eng.RegisterTool(t); err != nil {
+		if err := h.Engine().RegisterTool(t); err != nil {
 			client.Close()
 			return nil, &protocol.RPCError{
 				Code:    protocol.ErrCodeInvalidParams,
