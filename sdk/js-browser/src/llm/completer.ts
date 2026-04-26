@@ -31,6 +31,12 @@ export interface ChatMessage {
 export interface ResponseFormat {
   /** Either `'text'` or `'json_object'`. */
   type: 'text' | 'json_object';
+  /**
+   * Optional JSON Schema. When set together with `type: 'json_object'`, backends
+   * that support grammar-constrained decoding (e.g. WebLLM) restrict the output
+   * to match this schema. May be a JSON Schema object or a pre-stringified one.
+   */
+  schema?: Record<string, unknown> | string;
 }
 
 export interface ChatRequest {

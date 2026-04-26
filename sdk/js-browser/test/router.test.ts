@@ -79,7 +79,11 @@ describe('routerStep', () => {
     ]);
     expect(r.tool).toBe('none');
     expect(captured).not.toBeNull();
-    expect(captured!.response_format).toEqual({ type: 'json_object' });
+    expect(captured!.response_format?.type).toBe('json_object');
+    expect(captured!.response_format?.schema).toMatchObject({
+      type: 'object',
+      required: ['tool', 'arguments'],
+    });
     // System prompt is prepended.
     expect(captured!.messages[0]).toEqual({ role: 'system', content: 'sys' });
     expect(captured!.messages[1]).toEqual({ role: 'user', content: 'hi' });

@@ -174,7 +174,14 @@ export function assistantMessage(content: string): ChatMessage {
 }
 
 export function toolResultMessage(callId: string, content: string): ChatMessage {
-  return { role: 'tool', content, tool_call_id: callId };
+  // 多くのオープンモデル（Qwen2.5 / Llama 3.2 / Gemma 2 など WebLLM の prebuilt）は
+  // OpenAI 形式の role: "tool" を受け付けない。互換性のため user メッセージに包む。
+  // call_id は metadata として残しておく（streaming UI が紐付けに使える）。
+  return {
+    role: 'user',
+    content: `[tool_result name=${callId}]\n${content}`,
+    tool_call_id: callId,
+  };
 }
 
 export function toolCallMessage(

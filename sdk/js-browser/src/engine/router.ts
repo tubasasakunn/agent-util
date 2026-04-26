@@ -16,6 +16,21 @@ export interface RouterDecision {
   reasoning: string;
 }
 
+/**
+ * Router output JSON schema. Used for grammar-constrained decoding by
+ * backends that support it (WebLLM). The schema is intentionally permissive
+ * on `arguments` because it varies per tool.
+ */
+const ROUTER_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    tool: { type: 'string' },
+    arguments: { type: 'object' },
+    reasoning: { type: 'string' },
+  },
+  required: ['tool', 'arguments'],
+};
+
 export interface RouterOptions {
   /** Optional bound on tokens, forwarded to the completer. */
   maxTokens?: number;
@@ -42,7 +57,7 @@ export async function routerStep(
   ];
   const resp = await llm.chatCompletion({
     messages,
-    response_format: { type: 'json_object' },
+    response_format: { type: 'json_object', schema: ROUTER_SCHEMA },
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts.maxTokens !== undefined ? { max_tokens: opts.maxTokens } : {}),
   });

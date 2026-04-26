@@ -165,7 +165,19 @@ export class WebLLMCompleter implements Completer {
     if (req.temperature !== undefined) out.temperature = req.temperature;
     else if (this.opts.temperature !== undefined) out.temperature = this.opts.temperature;
     if (req.max_tokens !== undefined) out.max_tokens = req.max_tokens;
-    if (req.response_format) out.response_format = req.response_format;
+    if (req.response_format) {
+      // WebLLM の grammar compiler は schema を std::string で受け取るため、
+      // オブジェクト形式で渡された JSON Schema は stringify してから渡す。
+      // schema 未指定の json_object は WASM bridge エラーになるので type だけにする。
+      const rf = req.response_format;
+      if (rf.type === 'json_object' && rf.schema !== undefined) {
+        const schemaStr =
+          typeof rf.schema === 'string' ? rf.schema : JSON.stringify(rf.schema);
+        out.response_format = { type: 'json_object', schema: schemaStr };
+      } else {
+        out.response_format = { type: rf.type };
+      }
+    }
     return out;
   }
 }
