@@ -138,6 +138,11 @@ function generateCallId(): string {
   return `call_${Date.now().toString(36)}_${callIdCounter.toString(36)}`;
 }
 
+/** Stable signature of a tool call (name + sorted-keys JSON of args). */
+function callSignature(name: string, args: Record<string, unknown>): string {
+  return `${name}:${JSON.stringify(args, Object.keys(args).sort())}`;
+}
+
 export class AgentLoop {
   private readonly history: History;
   private readonly perms: PermissionChecker;
@@ -176,6 +181,8 @@ export class AgentLoop {
   private currentTurn = 0;
   /** Distinct tool names successfully invoked in the current run. */
   private executedToolKinds = new Set<string>();
+  /** "name:argsJSON" signatures successfully invoked. */
+  private executedCallSignatures = new Set<string>();
   /** Name of the most recent tool successfully invoked. */
   private lastToolName: string | null = null;
   /** Consecutive successful invocations of the same tool. */
@@ -297,16 +304,13 @@ export class AgentLoop {
       return { terminal: true, reason: 'completed', response: text };
     }
 
-    // Deep-research diversity: when min_tool_kinds is set and not yet met,
-    // exclude already-used tools from the router's enum so the model is
-    // forced (by grammar-constrained decoding) to pick something new.
+    // Deep-research diversity is enforced *after* the router picks via a
+    // signature-based backstop (see below). The router itself sees all tools
+    // so comparison-style queries can call the same tool with different args
+    // (e.g. search_wikipedia for Rust, then for Go).
     const minKinds = this.cfg.minToolKinds ?? 0;
-    const diversityActive =
-      minKinds > 0 && this.executedToolKinds.size > 0 && this.executedToolKinds.size < minKinds;
-    const allowedTools = diversityActive
-      ? tools.filter((t) => !this.executedToolKinds.has(t.name))
-      : tools;
-    const toolNames = allowedTools.map((t) => t.name);
+    const diversityActive = minKinds > 0 && this.executedToolKinds.size < minKinds;
+    const toolNames = tools.map((t) => t.name);
 
     let decision: RouterDecision;
     try {
@@ -314,7 +318,7 @@ export class AgentLoop {
         this.cfg.llm,
         buildRouterSystemPrompt({
           systemPrompt: this.cfg.systemPrompt,
-          tools: allowedTools,
+          tools,
         }),
         this.history.messages(),
         {
@@ -330,6 +334,20 @@ export class AgentLoop {
         error: re.message,
         ...(re.raw !== undefined ? { raw: re.raw } : {}),
       });
+      // Deep-research: don't let a parse failure on turn 1 short-circuit
+      // straight to a chat answer with zero tools. Inject a reminder that
+      // forces the router to emit JSON next time.
+      if (minKinds > 0 && this.executedToolKinds.size < minKinds) {
+        this.history.add(
+          userMessage(
+            `[System reminder] Your previous response was not valid JSON. ` +
+              `You MUST respond with a JSON object of the form: ` +
+              `{"tool":"<name>","arguments":{...},"reasoning":"..."}. ` +
+              `Pick a tool to call now — do NOT write a plan or prose.`,
+          ),
+        );
+        return { terminal: false, reason: 'router_parse_retry' };
+      }
       // Treat as "go straight to chat" rather than fail the run.
       const text = await this.chatStep(turn);
       return { terminal: true, reason: 'completed', response: text };
@@ -337,20 +355,22 @@ export class AgentLoop {
 
     await this.emit({ kind: 'router', turn, decision });
 
-    // Diversity enforcement: reject already-used tools when min_tool_kinds is not met.
-    // (the router prompt + enum already exclude them, but small models often echo
-    // the previous tool name from history; we hard-reject here as a backstop.)
+    // Diversity enforcement: reject the EXACT same call (same tool + same args)
+    // when min_tool_kinds is not yet met. This still allows comparison-style
+    // research (e.g. search_wikipedia for "Rust" and then for "Go") because
+    // the args differ — only true repetition is blocked.
     if (
       diversityActive &&
       decision.tool !== 'none' &&
       decision.tool !== '' &&
-      this.executedToolKinds.has(decision.tool)
+      this.executedCallSignatures.has(callSignature(decision.tool, decision.arguments))
     ) {
       const remaining = toolNames.filter((n) => n !== 'none');
       const reminder =
-        `[System reminder] You picked "${decision.tool}" but you have already used it. ` +
-        `Deep-research mode requires DIFFERENT tools. Already used: ${[...this.executedToolKinds].join(', ')}. ` +
-        `Pick a NEW tool from: ${remaining.join(', ') || '(no other tools available)'}.`;
+        `[System reminder] You picked "${decision.tool}" with the same arguments you used before. ` +
+        `Already-used calls: ${[...this.executedCallSignatures].join(' | ')}. ` +
+        `Either call a different tool from: ${remaining.join(', ') || '(none)'}, ` +
+        `or call ${decision.tool} with DIFFERENT arguments.`;
       this.history.add(userMessage(reminder));
       return { terminal: false, reason: 'min_tools_not_met' };
     }
@@ -473,6 +493,7 @@ export class AgentLoop {
 
     if (!result.is_error) {
       this.executedToolKinds.add(t.name);
+      this.executedCallSignatures.add(callSignature(t.name, decision.arguments));
       if (this.lastToolName === t.name) {
         this.lastToolStreak += 1;
       } else {

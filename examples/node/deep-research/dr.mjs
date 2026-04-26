@@ -59,8 +59,32 @@ class HttpCompleter {
       const body = await r.text();
       throw new Error(`HTTP ${r.status}: ${body.slice(0, 500)}`);
     }
-    return await r.json();
+    const resp = await r.json();
+    // Gemma 4 の internal thinking block (<|channel>thought ... <channel|>) を除去。
+    // LM Studio の chat template が除去しきれずに残るケースがある。
+    for (const choice of resp.choices || []) {
+      if (typeof choice.message?.content === 'string') {
+        choice.message.content = stripThinking(choice.message.content);
+      }
+    }
+    return resp;
   }
+}
+
+function stripThinking(text) {
+  let out = text;
+  // Gemma の channel トークン
+  out = out.replace(/<\|?channel\|?>\s*thought[\s\S]*?<\/?channel\|?>/gi, '');
+  out = out.replace(/<\|?thinking\|?>[\s\S]*?<\/?thinking\|?>/gi, '');
+  // Gemma の tool calling テンプレートが漏れたケース
+  out = out.replace(/<\|?tool_call\|?>[\s\S]*?<\/?tool_call\|?>/gi, '');
+  out = out.replace(/<\|?tool_response\|?>[\s\S]*?<\/?tool_response\|?>/gi, '');
+  // Llama 系の <think>...</think>
+  out = out.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // 単発のチャットテンプレート閉じ忘れ ("<|channel|>" 単体など) — 1 行ずつスペース化
+  out = out.replace(/<\|[^>]*\|>/g, '');
+  out = out.replace(/<[a-z_]+\|>/g, '');
+  return out.trim();
 }
 
 // --- ツール群 (URL 不要のものに絞る) ---------------------------------------
@@ -212,6 +236,8 @@ CRITICAL OUTPUT RULES for the final answer:
 - Write Markdown PROSE only. Do NOT output JSON, JS objects, or "[tool_result ...]" markers.
 - Do NOT make up tool results. Use only what the tools actually returned in this conversation.
 - Do NOT invent URLs like "example.com/...".
+- If a tool returned "No results." or empty content, state that explicitly — DO NOT invent facts to fill the gap.
+- Distinguish between facts FROM tool output and your own general knowledge. If you must fall back to general knowledge, write "(general knowledge, not from tool output)".
 - Cite sources by tool name in parentheses, e.g. "(source: search_wikipedia)".`;
 
 // --- main -----------------------------------------------------------------
