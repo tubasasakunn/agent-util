@@ -16,6 +16,30 @@ import TurndownService from 'turndown';
 // 公開 CORS proxy。デモ用、信頼性に注意。直接 fetch して CORS で失敗したら proxy 経由で再試行する。
 const CORS_PROXY = 'https://corsproxy.io/?url=';
 
+// WebLLM の prebuilt 一覧に未収録のモデル（Gemma 4 E2B など）を appConfig 経由で読み込むための設定。
+// HuggingFace コミュニティが MLC 形式で公開しているリポジトリを指す。
+const CUSTOM_APP_CONFIGS: Record<string, Record<string, unknown>> = {
+  'gemma-4-E2B-it-q4f16_1-MLC': {
+    model_list: [
+      {
+        model: 'https://huggingface.co/welcoma/gemma-4-E2B-it-q4f16_1-MLC',
+        model_id: 'gemma-4-E2B-it-q4f16_1-MLC',
+        model_lib:
+          'https://huggingface.co/welcoma/gemma-4-E2B-it-q4f16_1-MLC/resolve/main/libs/gemma-4-E2B-it-q4f16_1-MLC-webgpu.wasm',
+        required_features: ['shader-f16'],
+        // Gemma 4 は sliding window attention を使う。WebLLM は context_window_size と
+        // sliding_window_size の両方を正にできないので context_window_size を -1 に上書きする。
+        overrides: {
+          // sliding window を無効化し full attention のみに（Gemma 4 E2B のハイブリッド層を簡略）。
+          // welcoma の mlc-chat-config.json は両方正で出荷されており WebLLM 0.2.82 では reject される。
+          // context_window_size を 4096 のままで sliding を無効化することでロード可能になる。
+          sliding_window_size: -1,
+        },
+      },
+    ],
+  },
+};
+
 async function fetchTextWithCorsFallback(url: string, maxBytes = 8192): Promise<string> {
   const tryFetch = async (target: string): Promise<string> => {
     const res = await fetch(target, { redirect: 'follow' });
@@ -216,6 +240,142 @@ const searchWikipediaTool = tool<{ query: string; lang?: string }>({
   },
 });
 
+const fetchJsonTool = tool<{ url: string; path?: string }>({
+  name: 'fetch_json',
+  description:
+    'Fetch a JSON API endpoint and return parsed JSON. Many SPAs (Reddit, Hacker News, GitHub) expose JSON endpoints — use these instead of scraping HTML. Optional `path` extracts a sub-tree by dot-path (e.g. "data.children.0.data.title").',
+  parameters: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'Absolute URL of a JSON endpoint' },
+      path: { type: 'string', description: 'Dot-separated path into the JSON tree' },
+    },
+    required: ['url'],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: async ({ url, path }) => {
+    try {
+      const txt = await fetchTextWithCorsFallback(String(url), 256 * 1024);
+      const data = JSON.parse(txt) as unknown;
+      let picked: unknown = data;
+      if (typeof path === 'string' && path.length > 0) {
+        for (const key of String(path).split('.')) {
+          if (picked == null) break;
+          const idx = /^\d+$/.test(key) ? Number(key) : key;
+          picked = (picked as Record<string | number, unknown>)[idx as never];
+        }
+      }
+      const out = JSON.stringify(picked, null, 2);
+      return out.length > 8192 ? out.slice(0, 8192) + '\n... [truncated]' : out;
+    } catch (err) {
+      return { content: `fetch_json failed: ${(err as Error).message}`, is_error: true };
+    }
+  },
+});
+
+const fetchRssTool = tool<{ url: string; limit?: number }>({
+  name: 'fetch_rss',
+  description:
+    'Fetch and parse an RSS or Atom feed. Returns the title, link, and summary of up to N items (default 10). Useful for blogs and news sites that expose feeds.',
+  parameters: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'Absolute URL of an RSS/Atom feed' },
+      limit: { type: 'number', description: 'Max items to return (default 10)' },
+    },
+    required: ['url'],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: async ({ url, limit }) => {
+    try {
+      const xml = await fetchTextWithCorsFallback(String(url), 256 * 1024);
+      const doc = new DOMParser().parseFromString(xml, 'application/xml');
+      // RSS 2.0 と Atom の両方に対応
+      const items = Array.from(doc.querySelectorAll('item, entry'));
+      const max = typeof limit === 'number' && limit > 0 ? limit : 10;
+      const out = items.slice(0, max).map((it, i) => {
+        const title = it.querySelector('title')?.textContent?.trim() || '(no title)';
+        const link =
+          it.querySelector('link')?.textContent?.trim() ||
+          it.querySelector('link')?.getAttribute('href') ||
+          '';
+        const desc =
+          it.querySelector('description, summary, content')?.textContent?.trim().slice(0, 200) ||
+          '';
+        return `${i + 1}. ${title}\n   ${link}\n   ${desc}`;
+      });
+      if (out.length === 0) return 'No items found in feed.';
+      return `Feed has ${items.length} items (showing ${out.length}):\n\n` + out.join('\n\n');
+    } catch (err) {
+      return { content: `fetch_rss failed: ${(err as Error).message}`, is_error: true };
+    }
+  },
+});
+
+const renderInIframeTool = tool<{ url: string; selector?: string; waitMs?: number }>({
+  name: 'render_in_iframe',
+  description:
+    'Load a URL in a hidden iframe, wait for JS to render, then extract DOM. Works only for sites that allow iframe embedding (no X-Frame-Options: DENY). Use this for SPAs that need JS to populate content. `selector` defaults to "body", `waitMs` defaults to 3000.',
+  parameters: {
+    type: 'object',
+    properties: {
+      url: { type: 'string' },
+      selector: { type: 'string', description: 'CSS selector to extract (default "body")' },
+      waitMs: { type: 'number', description: 'ms to wait for JS rendering (default 3000)' },
+    },
+    required: ['url'],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler: async ({ url, selector, waitMs }) => {
+    return new Promise<string | { content: string; is_error: true }>((resolve) => {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.sandbox.add('allow-scripts', 'allow-same-origin');
+      const cleanup = () => {
+        try { document.body.removeChild(iframe); } catch { /* ignore */ }
+      };
+      const wait = typeof waitMs === 'number' ? waitMs : 3000;
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        resolve({ content: 'iframe load/render timed out (15s)', is_error: true });
+      }, 15000);
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          clearTimeout(timeoutId);
+          try {
+            const doc = iframe.contentDocument;
+            if (!doc) {
+              cleanup();
+              resolve({ content: 'iframe has no contentDocument (X-Frame-Options blocked)', is_error: true });
+              return;
+            }
+            const sel = (selector as string) || 'body';
+            const el = doc.querySelector(sel);
+            const text = (el?.textContent || '').replace(/\s+/g, ' ').trim();
+            const out = text.length > 8192 ? text.slice(0, 8192) + '\n... [truncated]' : text;
+            cleanup();
+            resolve(out || `(empty match for "${sel}")`);
+          } catch (err) {
+            cleanup();
+            resolve({ content: `iframe access denied: ${(err as Error).message}`, is_error: true });
+          }
+        }, wait);
+      };
+      iframe.onerror = () => {
+        clearTimeout(timeoutId);
+        cleanup();
+        resolve({ content: 'iframe failed to load', is_error: true });
+      };
+      iframe.src = String(url);
+      document.body.appendChild(iframe);
+    });
+  },
+});
+
 const currentTimeTool = tool<{ timezone?: string }>({
   name: 'get_current_time',
   description: 'Return the current date/time in ISO format and a human-readable form. Optionally specify an IANA timezone (e.g. "Asia/Tokyo").',
@@ -367,6 +527,9 @@ renderToolList([
   'fetch_url',
   'fetch_markdown',
   'extract_html',
+  'fetch_json',
+  'fetch_rss',
+  'render_in_iframe',
   'search_wikipedia',
   'get_current_time',
 ]);
@@ -381,7 +544,12 @@ loadBtn.addEventListener('click', async () => {
   progress.hidden = false;
   setStatus(`Loading <code>${escape(model)}</code>...`);
 
-  llm = new WebLLMCompleter({ model, temperature: 0.4 });
+  const customCfg = CUSTOM_APP_CONFIGS[model];
+  llm = new WebLLMCompleter({
+    model,
+    temperature: 0.4,
+    ...(customCfg ? { engineConfig: { appConfig: customCfg } } : {}),
+  });
 
   try {
     await llm.load((report) => {
@@ -409,6 +577,9 @@ loadBtn.addEventListener('click', async () => {
       fetchTool,
       fetchMarkdownTool,
       extractHtmlTool,
+      fetchJsonTool,
+      fetchRssTool,
+      renderInIframeTool,
       searchWikipediaTool,
       currentTimeTool,
     ] as Parameters<typeof agent.registerTools>),
