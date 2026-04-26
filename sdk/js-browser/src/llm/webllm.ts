@@ -71,12 +71,12 @@ export class WebLLMCompleter implements Completer {
     if (this.loadingPromise) return this.loadingPromise;
 
     this.loadingPromise = (async () => {
-      // Dynamic import so consumers without WebLLM (eg tests) can import this
-      // file just for its types. We hide the specifier from TypeScript's
-      // module resolution because `@mlc-ai/web-llm` is only an optional peer
-      // dep (and may not be installed in CI / Node test environments).
-      const specifier = '@mlc-ai/web-llm';
-      const mod = (await import(/* @vite-ignore */ specifier)) as {
+      // Literal specifier so Vite/webpack can pre-bundle the optional peer dep
+      // when it is installed. The // @ts-ignore is needed because `@mlc-ai/web-llm`
+      // is intentionally not a hard dependency: consumers in Node tests can
+      // import this file for its types without installing it.
+      // @ts-ignore — optional peer dependency
+      const mod = (await import('@mlc-ai/web-llm')) as {
         CreateMLCEngine: (
           model: string,
           cfg?: Record<string, unknown>,

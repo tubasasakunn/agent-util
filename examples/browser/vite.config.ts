@@ -1,19 +1,26 @@
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  // WebLLM ships large WASM/WebGPU shaders — keep them out of inlining.
   build: {
     target: 'es2022',
     sourcemap: true,
   },
+  resolve: {
+    // demo の node_modules にある WebLLM を SDK の optional peer dep として解決させる。
+    // これがないと Vite は SDK package の peerDependenciesMeta.optional を見て空スタブを返す。
+    alias: {
+      '@mlc-ai/web-llm': resolve(here, 'node_modules/@mlc-ai/web-llm/lib/index.js'),
+    },
+  },
   optimizeDeps: {
-    // @mlc-ai/web-llm pulls in heavy shaders; let Vite serve them as-is.
-    exclude: ['@mlc-ai/web-llm'],
+    include: ['@mlc-ai/web-llm'],
   },
   server: {
     headers: {
-      // Required for WebLLM shared-array-buffer / cross-origin isolation in
-      // some browsers — harmless to set unconditionally.
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
