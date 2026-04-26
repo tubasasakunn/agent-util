@@ -4,6 +4,8 @@ Human-readable reference for the `ai-agent` JSON-RPC API. Wrapper authors and SD
 
 For machine-readable specs see [`../openrpc.json`](../openrpc.json) and [`../schemas/`](../schemas/).
 
+> **Looking for a browser-only setup?** The pure-TypeScript browser SDK at [`../../sdk/js-browser/`](../../sdk/js-browser/) runs the same agent loop client-side via WebLLM — no Go core, no JSON-RPC, no subprocess. Most of the concepts below (guards, verifiers, permission, router, streaming) carry over identically.
+
 ## Contents
 
 - [overview.md](./overview.md) — Architecture, communication model, lifecycle, versioning.

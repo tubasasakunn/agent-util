@@ -1,0 +1,62 @@
+{
+  "name": "@ai-agent/browser",
+  "version": "0.1.0",
+  "description": "Pure-TypeScript browser SDK for ai-agent — runs the agent loop in the browser with WebLLM (no Go core required).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./llm": {
+      "types": "./dist/llm/index.d.ts",
+      "import": "./dist/llm/index.js",
+      "default": "./dist/llm/index.js"
+    },
+    "./builtins": {
+      "types": "./dist/builtins/index.d.ts",
+      "import": "./dist/builtins/index.js",
+      "default": "./dist/builtins/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "ai-agent",
+    "sllm",
+    "agent",
+    "browser",
+    "webllm",
+    "webgpu",
+    "harness"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@mlc-ai/web-llm": "^0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@mlc-ai/web-llm": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

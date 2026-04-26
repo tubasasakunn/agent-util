@@ -21,3 +21,16 @@ sdk/js/.vitest/
 sdk/js/coverage/
 sdk/js/*.tsbuildinfo
 sdk/js/package-lock.json
+
+# Browser SDK build / cache artifacts
+sdk/js-browser/node_modules/
+sdk/js-browser/dist/
+sdk/js-browser/.vitest/
+sdk/js-browser/coverage/
+sdk/js-browser/*.tsbuildinfo
+sdk/js-browser/package-lock.json
+
+# Browser demo build / cache artifacts
+examples/browser/node_modules/
+examples/browser/dist/
+examples/browser/package-lock.json

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ai-agent — Browser Demo</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>ai-agent <span class="muted">browser demo</span></h1>
+      <div class="model-pick">
+        <label>
+          Model
+          <select id="model-select">
+            <option value="qwen2.5-0.5b-instruct-q4f16_1-MLC">Qwen 2.5 0.5B (~400MB)</option>
+            <option value="llama-3.2-1b-instruct-q4f16_1-MLC">Llama 3.2 1B (~700MB)</option>
+            <option value="gemma-2-2b-it-q4f16_1-MLC" selected>Gemma 2 2B (~1.5GB)</option>
+            <option value="Llama-3.2-3B-Instruct-q4f16_1-MLC">Llama 3.2 3B (~2GB)</option>
+          </select>
+        </label>
+        <button id="load-btn">Load model</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="chat-pane">
+        <div id="status" class="status">
+          Pick a model and click <strong>Load model</strong>. First load downloads the
+          weights into your browser&rsquo;s IndexedDB cache; subsequent loads are instant.
+        </div>
+        <progress id="progress" max="1" value="0" hidden></progress>
+
+        <div id="chat" class="chat" aria-live="polite"></div>
+
+        <form id="input-form" class="input-row">
+          <textarea
+            id="prompt"
+            placeholder="Ask the agent... (e.g. &ldquo;What is 17 + 25?&rdquo; or &ldquo;Echo: hi&rdquo;)"
+            rows="2"
+            disabled
+          ></textarea>
+          <button id="send-btn" type="submit" disabled>Send</button>
+        </form>
+      </section>
+
+      <aside class="side">
+        <h2>Tools</h2>
+        <ul id="tool-list" class="tool-list"></ul>
+
+        <h2>Guards</h2>
+        <ul id="guard-list" class="guard-list"></ul>
+
+        <h2>Trace</h2>
+        <ol id="trace" class="trace"></ol>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
