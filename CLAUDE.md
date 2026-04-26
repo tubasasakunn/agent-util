@@ -2,6 +2,16 @@
 
 SLLM（小さいLLM）を動かすエージェントハーネスをGoで構築するプロジェクト。
 
+## バージョン
+
+- Version: `0.1.0`
+- 真実の源: `pkg/protocol/version.go` (`protocol.LibraryVersion` 定数。JSON-RPC 仕様の `Version="2.0"` とは別物）
+- 変更履歴: [CHANGELOG.md](CHANGELOG.md)
+- バージョニング方針: [docs/VERSIONING.md](docs/VERSIONING.md)
+
+`pkg/protocol/version.go` / `sdk/python/pyproject.toml` / `sdk/js/package.json` /
+`README.md` バッジ / 本セクションは常に同一値で同期する。
+
 ## プロジェクト構成
 
 ```
