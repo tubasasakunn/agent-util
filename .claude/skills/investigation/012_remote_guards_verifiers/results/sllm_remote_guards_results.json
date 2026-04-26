@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-04-26T10:21:23+09:00",
+  "endpoint": "http://localhost:8080/v1/chat/completions",
+  "results": [
+    {
+      "name": "A: remote input guard blocks input",
+      "pass": true,
+      "details": "guard called 1 times, reason=\"input_denied\"",
+      "duration_ms": "410",
+      "raw": {
+        "guard_calls": 1,
+        "reason": "input_denied",
+        "response": "Input rejected: matches blacklist 'evil'"
+      }
+    },
+    {
+      "name": "B: remote verifier observes tool result",
+      "pass": true,
+      "details": "verifier called 1 times (1st=fail, 2nd+=pass)",
+      "duration_ms": "6698",
+      "raw": {
+        "call_count": 1,
+        "verifier_calls": 1
+      }
+    },
+    {
+      "name": "C: remote guard timeout → fail-closed deny",
+      "pass": true,
+      "details": "timeout caused fail-closed deny: reason=\"input_denied\"",
+      "duration_ms": "40011",
+      "raw": {
+        "reason": "input_denied",
+        "response": "Input rejected: remote guard \"slow_guard\" error: transport: context deadline exceeded"
+      }
+    }
+  ]
+}

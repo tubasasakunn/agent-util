@@ -494,6 +494,242 @@ func TestIntegration_AgentAbort(t *testing.T) {
 	clientToServer_w.Close()
 }
 
+func TestIntegration_RemoteGuardDeniesInput(t *testing.T) {
+	clientToServer_r, clientToServer_w := io.Pipe()
+	serverToClient_r, serverToClient_w := io.Pipe()
+
+	comp := &integrationCompleter{response: "should not be reached"}
+	eng := engine.New(comp, engine.WithMaxTurns(3))
+
+	srv := New(clientToServer_r, serverToClient_w)
+	handlers := NewHandlers(eng, srv)
+	handlers.RegisterAll()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go srv.Serve(ctx)
+	buf := &bytes.Buffer{}
+
+	// 1. guard.register
+	writeJSON(t, clientToServer_w, protocol.Request{
+		JSONRPC: protocol.Version,
+		Method:  protocol.MethodGuardRegister,
+		Params: mustMarshal(protocol.GuardRegisterParams{
+			Guards: []protocol.GuardDefinition{
+				{Name: "wrapper_block_evil", Stage: protocol.GuardStageInput},
+			},
+		}),
+		ID: protocol.IntPtr(1),
+	})
+
+	// guard.register レスポンス
+	regResp := asResponse(t, readMessage(t, serverToClient_r, buf))
+	if regResp.Error != nil {
+		t.Fatalf("guard.register error: %+v", regResp.Error)
+	}
+
+	// 2. agent.configure でリモートガードを参照
+	writeJSON(t, clientToServer_w, protocol.Request{
+		JSONRPC: protocol.Version,
+		Method:  protocol.MethodAgentConfigure,
+		Params: mustMarshal(protocol.AgentConfigureParams{
+			Guards: &protocol.GuardsConfig{Input: []string{"wrapper_block_evil"}},
+		}),
+		ID: protocol.IntPtr(2),
+	})
+	cfgResp := asResponse(t, readMessage(t, serverToClient_r, buf))
+	if cfgResp.Error != nil {
+		t.Fatalf("configure error: %+v", cfgResp.Error)
+	}
+
+	// 3. agent.run を投げる → ガードが guard.execute を発火 → ラッパーが deny を返す
+	writeJSON(t, clientToServer_w, protocol.Request{
+		JSONRPC: protocol.Version,
+		Method:  protocol.MethodAgentRun,
+		Params:  mustMarshal(protocol.AgentRunParams{Prompt: "delete everything"}),
+		ID:      protocol.IntPtr(3),
+	})
+
+	var (
+		guardReq    *protocol.Request
+		runResponse *protocol.Response
+	)
+	deadline := time.After(5 * time.Second)
+	for runResponse == nil {
+		select {
+		case <-deadline:
+			t.Fatal("timeout waiting for agent.run")
+		default:
+		}
+		msg := readMessage(t, serverToClient_r, buf)
+		if isResponse(msg) {
+			r := asResponse(t, msg)
+			if r.ID != nil && *r.ID == 3 {
+				runResponse = &r
+			}
+		} else {
+			req := asRequest(t, msg)
+			if req.Method == protocol.MethodGuardExecute {
+				guardReq = &req
+				// ラッパー側 fake guard: deny
+				writeJSON(t, clientToServer_w, protocol.Response{
+					JSONRPC: protocol.Version,
+					Result: mustMarshal(protocol.GuardExecuteResult{
+						Decision: protocol.GuardDecisionDeny,
+						Reason:   "matches blacklist",
+					}),
+					ID: req.ID,
+				})
+			}
+		}
+	}
+
+	if guardReq == nil {
+		t.Fatal("guard.execute was not invoked")
+	}
+	var gp protocol.GuardExecuteParams
+	json.Unmarshal(guardReq.Params, &gp)
+	if gp.Stage != protocol.GuardStageInput {
+		t.Errorf("stage = %q, want %q", gp.Stage, protocol.GuardStageInput)
+	}
+	if gp.Name != "wrapper_block_evil" {
+		t.Errorf("name = %q", gp.Name)
+	}
+	if gp.Input != "delete everything" {
+		t.Errorf("input = %q", gp.Input)
+	}
+
+	if runResponse.Error != nil {
+		t.Fatalf("run error: %+v", runResponse.Error)
+	}
+	var ar protocol.AgentRunResult
+	json.Unmarshal(runResponse.Result, &ar)
+	if ar.Reason != "input_denied" {
+		t.Errorf("Reason = %q, want input_denied", ar.Reason)
+	}
+
+	cancel()
+	clientToServer_w.Close()
+}
+
+func TestIntegration_RemoteVerifierFails(t *testing.T) {
+	clientToServer_r, clientToServer_w := io.Pipe()
+	serverToClient_r, serverToClient_w := io.Pipe()
+
+	// ルーターが greet を呼び続けないように integrationCompleter を再利用
+	comp := &integrationCompleter{
+		toolName: "greet",
+		toolArgs: `{"name":"Alice"}`,
+		response: "done",
+	}
+	eng := engine.New(comp, engine.WithMaxTurns(5))
+
+	srv := New(clientToServer_r, serverToClient_w)
+	handlers := NewHandlers(eng, srv)
+	handlers.RegisterAll()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go srv.Serve(ctx)
+	buf := &bytes.Buffer{}
+
+	// tool.register
+	writeJSON(t, clientToServer_w, protocol.Request{
+		JSONRPC: protocol.Version,
+		Method:  protocol.MethodToolRegister,
+		Params: mustMarshal(protocol.ToolRegisterParams{
+			Tools: []protocol.ToolDefinition{
+				{Name: "greet", Description: "x", Parameters: json.RawMessage(`{}`)},
+			},
+		}),
+		ID: protocol.IntPtr(1),
+	})
+	asResponse(t, readMessage(t, serverToClient_r, buf))
+
+	// verifier.register
+	writeJSON(t, clientToServer_w, protocol.Request{
+		JSONRPC: protocol.Version,
+		Method:  protocol.MethodVerifierRegister,
+		Params: mustMarshal(protocol.VerifierRegisterParams{
+			Verifiers: []protocol.VerifierDefinition{{Name: "wrapper_audit"}},
+		}),
+		ID: protocol.IntPtr(2),
+	})
+	asResponse(t, readMessage(t, serverToClient_r, buf))
+
+	// configure: verifier 参照
+	writeJSON(t, clientToServer_w, protocol.Request{
+		JSONRPC: protocol.Version,
+		Method:  protocol.MethodAgentConfigure,
+		Params: mustMarshal(protocol.AgentConfigureParams{
+			Verify: &protocol.VerifyConfig{Verifiers: []string{"wrapper_audit"}},
+		}),
+		ID: protocol.IntPtr(3),
+	})
+	asResponse(t, readMessage(t, serverToClient_r, buf))
+
+	// agent.run
+	writeJSON(t, clientToServer_w, protocol.Request{
+		JSONRPC: protocol.Version,
+		Method:  protocol.MethodAgentRun,
+		Params:  mustMarshal(protocol.AgentRunParams{Prompt: "do it"}),
+		ID:      protocol.IntPtr(4),
+	})
+
+	var (
+		verifierInvoked bool
+		runResp         *protocol.Response
+	)
+	deadline := time.After(5 * time.Second)
+	for runResp == nil {
+		select {
+		case <-deadline:
+			t.Fatal("timeout")
+		default:
+		}
+		msg := readMessage(t, serverToClient_r, buf)
+		if isResponse(msg) {
+			r := asResponse(t, msg)
+			if r.ID != nil && *r.ID == 4 {
+				runResp = &r
+			}
+		} else {
+			req := asRequest(t, msg)
+			switch req.Method {
+			case protocol.MethodToolExecute:
+				writeJSON(t, clientToServer_w, protocol.Response{
+					JSONRPC: protocol.Version,
+					Result:  mustMarshal(protocol.ToolExecuteResult{Content: "Hello, Alice!"}),
+					ID:      req.ID,
+				})
+			case protocol.MethodVerifierExecute:
+				verifierInvoked = true
+				// 1回目だけ fail させて検証ループに入れる
+				writeJSON(t, clientToServer_w, protocol.Response{
+					JSONRPC: protocol.Version,
+					Result: mustMarshal(protocol.VerifierExecuteResult{
+						Passed:  false,
+						Summary: "audit policy violation",
+					}),
+					ID: req.ID,
+				})
+			}
+		}
+	}
+
+	if !verifierInvoked {
+		t.Fatal("verifier.execute was not invoked")
+	}
+	if runResp.Error != nil {
+		t.Fatalf("run error: %+v", runResp.Error)
+	}
+
+	cancel()
+	clientToServer_w.Close()
+}
+
 func mustMarshal(v any) json.RawMessage {
 	data, err := json.Marshal(v)
 	if err != nil {

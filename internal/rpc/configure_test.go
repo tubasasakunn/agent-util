@@ -323,6 +323,94 @@ func TestHandlers_AgentConfigure_AllFeaturesAtOnce(t *testing.T) {
 	}
 }
 
+func TestHandlers_AgentConfigure_RemoteGuardNameResolves(t *testing.T) {
+	h := newTestHandlers(t, &testCompleter{})
+
+	// 1. guard.register でリモートガードを登録
+	regParams := mustJSON(t, protocol.GuardRegisterParams{
+		Guards: []protocol.GuardDefinition{
+			{Name: "my_remote_guard", Stage: protocol.GuardStageInput},
+			{Name: "my_remote_output", Stage: protocol.GuardStageOutput},
+		},
+	})
+	if _, rpcErr := h.handleGuardRegister(context.Background(), regParams); rpcErr != nil {
+		t.Fatalf("guard.register: %+v", rpcErr)
+	}
+
+	// 2. agent.configure で名前参照（builtin にない名前でも解決できるはず）
+	cfg := mustJSON(t, protocol.AgentConfigureParams{
+		Guards: &protocol.GuardsConfig{
+			Input:  []string{"my_remote_guard"},
+			Output: []string{"my_remote_output"},
+		},
+	})
+	res, rpcErr := h.handleAgentConfigure(context.Background(), cfg)
+	if rpcErr != nil {
+		t.Fatalf("configure: %+v", rpcErr)
+	}
+	if r := res.(protocol.AgentConfigureResult); !equalStringSlices(r.Applied, []string{"guards"}) {
+		t.Errorf("Applied = %v, want [guards]", r.Applied)
+	}
+}
+
+func TestHandlers_AgentConfigure_BuiltinAndRemoteCoexist(t *testing.T) {
+	h := newTestHandlers(t, &testCompleter{})
+
+	regParams := mustJSON(t, protocol.GuardRegisterParams{
+		Guards: []protocol.GuardDefinition{
+			{Name: "wrapper_only", Stage: protocol.GuardStageInput},
+		},
+	})
+	if _, rpcErr := h.handleGuardRegister(context.Background(), regParams); rpcErr != nil {
+		t.Fatalf("guard.register: %+v", rpcErr)
+	}
+
+	// builtin と remote 名を混在させる
+	cfg := mustJSON(t, protocol.AgentConfigureParams{
+		Guards: &protocol.GuardsConfig{
+			Input: []string{"prompt_injection", "wrapper_only"},
+		},
+	})
+	if _, rpcErr := h.handleAgentConfigure(context.Background(), cfg); rpcErr != nil {
+		t.Fatalf("configure: %+v", rpcErr)
+	}
+}
+
+func TestHandlers_AgentConfigure_RemoteVerifierNameResolves(t *testing.T) {
+	h := newTestHandlers(t, &testCompleter{})
+
+	regParams := mustJSON(t, protocol.VerifierRegisterParams{
+		Verifiers: []protocol.VerifierDefinition{{Name: "my_remote_verifier"}},
+	})
+	if _, rpcErr := h.handleVerifierRegister(context.Background(), regParams); rpcErr != nil {
+		t.Fatalf("verifier.register: %+v", rpcErr)
+	}
+
+	cfg := mustJSON(t, protocol.AgentConfigureParams{
+		Verify: &protocol.VerifyConfig{
+			Verifiers: []string{"my_remote_verifier"},
+		},
+	})
+	if _, rpcErr := h.handleAgentConfigure(context.Background(), cfg); rpcErr != nil {
+		t.Fatalf("configure: %+v", rpcErr)
+	}
+}
+
+func TestHandlers_AgentConfigure_UnknownRemoteName(t *testing.T) {
+	h := newTestHandlers(t, &testCompleter{})
+
+	cfg := mustJSON(t, protocol.AgentConfigureParams{
+		Guards: &protocol.GuardsConfig{Input: []string{"never_registered"}},
+	})
+	_, rpcErr := h.handleAgentConfigure(context.Background(), cfg)
+	if rpcErr == nil {
+		t.Fatal("expected error for unknown name (neither builtin nor remote)")
+	}
+	if !strings.Contains(rpcErr.Message, "never_registered") {
+		t.Errorf("error should mention name, got %q", rpcErr.Message)
+	}
+}
+
 func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

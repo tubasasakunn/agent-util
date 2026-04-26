@@ -4,15 +4,33 @@ import "encoding/json"
 
 // メソッド定数。
 const (
-	MethodAgentRun       = "agent.run"
-	MethodAgentAbort     = "agent.abort"
-	MethodAgentConfigure = "agent.configure"
-	MethodToolRegister   = "tool.register"
-	MethodToolExecute    = "tool.execute"
-	MethodMCPRegister    = "mcp.register"
-	MethodStreamDelta    = "stream.delta"
-	MethodStreamEnd      = "stream.end"
-	MethodContextStatus  = "context.status"
+	MethodAgentRun         = "agent.run"
+	MethodAgentAbort       = "agent.abort"
+	MethodAgentConfigure   = "agent.configure"
+	MethodToolRegister     = "tool.register"
+	MethodToolExecute      = "tool.execute"
+	MethodMCPRegister      = "mcp.register"
+	MethodGuardRegister    = "guard.register"
+	MethodGuardExecute     = "guard.execute"
+	MethodVerifierRegister = "verifier.register"
+	MethodVerifierExecute  = "verifier.execute"
+	MethodStreamDelta      = "stream.delta"
+	MethodStreamEnd        = "stream.end"
+	MethodContextStatus    = "context.status"
+)
+
+// ガードのステージ識別子（GuardDefinition.Stage / GuardExecuteParams.Stage）。
+const (
+	GuardStageInput    = "input"
+	GuardStageToolCall = "tool_call"
+	GuardStageOutput   = "output"
+)
+
+// ガードの判定識別子（GuardExecuteResult.Decision）。
+const (
+	GuardDecisionAllow    = "allow"
+	GuardDecisionDeny     = "deny"
+	GuardDecisionTripwire = "tripwire"
 )
 
 // --- agent.run ---
@@ -194,6 +212,82 @@ type MCPRegisterParams struct {
 // MCPRegisterResult は mcp.register の結果。
 type MCPRegisterResult struct {
 	Tools []string `json:"tools"` // 登録されたツール名の一覧
+}
+
+// --- guard.register (ラッパー → コア) ---
+
+// GuardRegisterParams は guard.register のパラメータ。
+// ラッパー側で実装した名前付きガードをコアに登録する。
+// 登録した名前は agent.configure の guards.input/tool_call/output から参照できる。
+type GuardRegisterParams struct {
+	Guards []GuardDefinition `json:"guards"`
+}
+
+// GuardDefinition はラッパーから登録されるガード定義。
+// Stage は GuardStageInput/GuardStageToolCall/GuardStageOutput のいずれか。
+type GuardDefinition struct {
+	Name  string `json:"name"`
+	Stage string `json:"stage"`
+}
+
+// GuardRegisterResult は guard.register の結果。
+type GuardRegisterResult struct {
+	Registered int `json:"registered"`
+}
+
+// --- guard.execute (コア → ラッパー) ---
+
+// GuardExecuteParams は guard.execute のパラメータ。
+// Stage に応じて Input / ToolName+Args / Output のいずれかが入る。
+type GuardExecuteParams struct {
+	Name     string          `json:"name"`
+	Stage    string          `json:"stage"`
+	Input    string          `json:"input,omitempty"`
+	ToolName string          `json:"tool_name,omitempty"`
+	Args     json.RawMessage `json:"args,omitempty"`
+	Output   string          `json:"output,omitempty"`
+}
+
+// GuardExecuteResult は guard.execute の結果。
+// Decision は GuardDecisionAllow/GuardDecisionDeny/GuardDecisionTripwire のいずれか。
+type GuardExecuteResult struct {
+	Decision string   `json:"decision"`
+	Reason   string   `json:"reason,omitempty"`
+	Details  []string `json:"details,omitempty"`
+}
+
+// --- verifier.register (ラッパー → コア) ---
+
+// VerifierRegisterParams は verifier.register のパラメータ。
+type VerifierRegisterParams struct {
+	Verifiers []VerifierDefinition `json:"verifiers"`
+}
+
+// VerifierDefinition はラッパーから登録される Verifier 定義。
+type VerifierDefinition struct {
+	Name string `json:"name"`
+}
+
+// VerifierRegisterResult は verifier.register の結果。
+type VerifierRegisterResult struct {
+	Registered int `json:"registered"`
+}
+
+// --- verifier.execute (コア → ラッパー) ---
+
+// VerifierExecuteParams は verifier.execute のパラメータ。
+type VerifierExecuteParams struct {
+	Name     string          `json:"name"`
+	ToolName string          `json:"tool_name"`
+	Args     json.RawMessage `json:"args,omitempty"`
+	Result   string          `json:"result"`
+}
+
+// VerifierExecuteResult は verifier.execute の結果。
+type VerifierExecuteResult struct {
+	Passed  bool     `json:"passed"`
+	Summary string   `json:"summary,omitempty"`
+	Details []string `json:"details,omitempty"`
 }
 
 // --- stream.delta (通知) ---

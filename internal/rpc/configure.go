@@ -12,8 +12,10 @@ import (
 // rebuildEngine は現在の Engine を agent.configure の差分パラメータで再構築する。
 // 既存の tools / 履歴 / Completer / LogWriter は引き継がれる。
 // notifier 経由のストリーミング設定もここで反映する。
+// remote が非 nil の場合、ガード/Verifier 名はまず builtin で解決し、見つからなければ
+// remote レジストリ（guard.register / verifier.register で登録された名前）からフォールバックする。
 // 設定済みフィールドは applied に追加される。
-func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifier *Notifier) (*engine.Engine, []string, error) {
+func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifier *Notifier, remote *RemoteRegistry) (*engine.Engine, []string, error) {
 	var applied []string
 	opts := []engine.Option{
 		engine.WithLogWriter(prev.LogWriter()),
@@ -105,21 +107,21 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 
 	if p.Guards != nil {
 		for _, name := range p.Guards.Input {
-			g, err := builtin.InputGuard(name)
+			g, err := resolveInputGuard(name, remote)
 			if err != nil {
 				return nil, nil, fmt.Errorf("guards.input: %w", err)
 			}
 			opts = append(opts, engine.WithInputGuards(g))
 		}
 		for _, name := range p.Guards.ToolCall {
-			g, err := builtin.ToolCallGuard(name)
+			g, err := resolveToolCallGuard(name, remote)
 			if err != nil {
 				return nil, nil, fmt.Errorf("guards.tool_call: %w", err)
 			}
 			opts = append(opts, engine.WithToolCallGuards(g))
 		}
 		for _, name := range p.Guards.Output {
-			g, err := builtin.OutputGuard(name)
+			g, err := resolveOutputGuard(name, remote)
 			if err != nil {
 				return nil, nil, fmt.Errorf("guards.output: %w", err)
 			}
@@ -130,7 +132,7 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 
 	if p.Verify != nil {
 		for _, name := range p.Verify.Verifiers {
-			v, err := builtin.Verifier(name)
+			v, err := resolveVerifier(name, remote)
 			if err != nil {
 				return nil, nil, fmt.Errorf("verify.verifiers: %w", err)
 			}
@@ -209,4 +211,57 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 	}
 
 	return newEng, applied, nil
+}
+
+// resolveInputGuard は名前から InputGuard を解決する。
+// builtin → remote の順に試行し、どちらでも見つからなければ error を返す。
+func resolveInputGuard(name string, remote *RemoteRegistry) (engine.InputGuard, error) {
+	if g, err := builtin.InputGuard(name); err == nil {
+		return g, nil
+	}
+	if remote != nil {
+		if g, ok := remote.LookupInputGuard(name); ok {
+			return g, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown input guard: %q (not registered as builtin or remote)", name)
+}
+
+// resolveToolCallGuard は名前から ToolCallGuard を解決する。
+func resolveToolCallGuard(name string, remote *RemoteRegistry) (engine.ToolCallGuard, error) {
+	if g, err := builtin.ToolCallGuard(name); err == nil {
+		return g, nil
+	}
+	if remote != nil {
+		if g, ok := remote.LookupToolCallGuard(name); ok {
+			return g, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown tool_call guard: %q (not registered as builtin or remote)", name)
+}
+
+// resolveOutputGuard は名前から OutputGuard を解決する。
+func resolveOutputGuard(name string, remote *RemoteRegistry) (engine.OutputGuard, error) {
+	if g, err := builtin.OutputGuard(name); err == nil {
+		return g, nil
+	}
+	if remote != nil {
+		if g, ok := remote.LookupOutputGuard(name); ok {
+			return g, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown output guard: %q (not registered as builtin or remote)", name)
+}
+
+// resolveVerifier は名前から Verifier を解決する。
+func resolveVerifier(name string, remote *RemoteRegistry) (engine.Verifier, error) {
+	if v, err := builtin.Verifier(name); err == nil {
+		return v, nil
+	}
+	if remote != nil {
+		if v, ok := remote.LookupVerifier(name); ok {
+			return v, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown verifier: %q (not registered as builtin or remote)", name)
 }

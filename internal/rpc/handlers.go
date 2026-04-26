@@ -23,6 +23,8 @@ type Handlers struct {
 	runMu      sync.Mutex
 	runCancel  context.CancelFunc
 	mcpClients []*mcp.Client // 登録された MCP サーバーのクライアント
+
+	remote *RemoteRegistry // ラッパーから登録された名前付きガード/Verifier
 }
 
 // NewHandlers は Handlers を生成する。
@@ -31,6 +33,7 @@ func NewHandlers(eng *engine.Engine, server *Server) *Handlers {
 		eng:      eng,
 		server:   server,
 		notifier: NewNotifier(server),
+		remote:   NewRemoteRegistry(),
 	}
 }
 
@@ -41,7 +44,12 @@ func (h *Handlers) RegisterAll() {
 	h.server.Handle(protocol.MethodAgentConfigure, h.handleAgentConfigure)
 	h.server.Handle(protocol.MethodToolRegister, h.handleToolRegister)
 	h.server.Handle(protocol.MethodMCPRegister, h.handleMCPRegister)
+	h.server.Handle(protocol.MethodGuardRegister, h.handleGuardRegister)
+	h.server.Handle(protocol.MethodVerifierRegister, h.handleVerifierRegister)
 }
+
+// RemoteRegistry は登録済みのリモートガード/Verifier を返す（テスト/動的差し替え確認用）。
+func (h *Handlers) RemoteRegistry() *RemoteRegistry { return h.remote }
 
 // Engine は現在保持している Engine を返す。テストや動的差し替えの確認用。
 func (h *Handlers) Engine() *engine.Engine {
@@ -129,7 +137,7 @@ func (h *Handlers) handleAgentConfigure(ctx context.Context, params json.RawMess
 
 	h.engMu.Lock()
 	defer h.engMu.Unlock()
-	newEng, applied, err := rebuildEngine(h.eng, &p, h.notifier)
+	newEng, applied, err := rebuildEngine(h.eng, &p, h.notifier, h.remote)
 	if err != nil {
 		return nil, &protocol.RPCError{
 			Code:    protocol.ErrCodeInvalidParams,
@@ -223,4 +231,65 @@ func (h *Handlers) handleMCPRegister(ctx context.Context, params json.RawMessage
 	}
 
 	return protocol.MCPRegisterResult{Tools: names}, nil
+}
+
+func (h *Handlers) handleGuardRegister(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	var p protocol.GuardRegisterParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeInvalidParams,
+			Message: "invalid params: " + err.Error(),
+		}
+	}
+
+	registered := 0
+	for _, def := range p.Guards {
+		if def.Name == "" {
+			return nil, &protocol.RPCError{
+				Code:    protocol.ErrCodeInvalidParams,
+				Message: "guard name must not be empty",
+			}
+		}
+		switch def.Stage {
+		case protocol.GuardStageInput:
+			h.remote.AddInputGuard(NewRemoteInputGuard(def.Name, h.server))
+		case protocol.GuardStageToolCall:
+			h.remote.AddToolCallGuard(NewRemoteToolCallGuard(def.Name, h.server))
+		case protocol.GuardStageOutput:
+			h.remote.AddOutputGuard(NewRemoteOutputGuard(def.Name, h.server))
+		default:
+			return nil, &protocol.RPCError{
+				Code: protocol.ErrCodeInvalidParams,
+				Message: fmt.Sprintf("guard %q: unknown stage %q (expected input|tool_call|output)",
+					def.Name, def.Stage),
+			}
+		}
+		registered++
+	}
+
+	return protocol.GuardRegisterResult{Registered: registered}, nil
+}
+
+func (h *Handlers) handleVerifierRegister(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	var p protocol.VerifierRegisterParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeInvalidParams,
+			Message: "invalid params: " + err.Error(),
+		}
+	}
+
+	registered := 0
+	for _, def := range p.Verifiers {
+		if def.Name == "" {
+			return nil, &protocol.RPCError{
+				Code:    protocol.ErrCodeInvalidParams,
+				Message: "verifier name must not be empty",
+			}
+		}
+		h.remote.AddVerifier(NewRemoteVerifier(def.Name, h.server))
+		registered++
+	}
+
+	return protocol.VerifierRegisterResult{Registered: registered}, nil
 }
