@@ -3,3 +3,13 @@
 
 # Investigation 用に各検証ディレクトリへビルドされる検証バイナリ
 .claude/skills/investigation/**/agent_test_binary
+
+# Python SDK build / cache artifacts
+sdk/python/.venv/
+sdk/python/__pycache__/
+sdk/python/**/__pycache__/
+sdk/python/*.egg-info/
+sdk/python/**/*.egg-info/
+sdk/python/dist/
+sdk/python/build/
+sdk/python/.pytest_cache/
