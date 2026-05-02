@@ -8,6 +8,7 @@ import (
 
 	agentctx "ai-agent/internal/context"
 	"ai-agent/internal/llm"
+	"ai-agent/internal/skills"
 	"ai-agent/pkg/tool"
 )
 
@@ -37,6 +38,7 @@ type Engine struct {
 	streamingEnabled       bool
 	streamCallback         StreamCallback
 	contextStatusCallback  ContextStatusCallback
+	skillToolNames         map[string]struct{}
 }
 
 // New は Engine を生成する。
@@ -104,6 +106,30 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 		streamingEnabled:       cfg.streamingEnabled,
 		streamCallback:         cfg.streamCallback,
 		contextStatusCallback:  cfg.contextStatusCallback,
+	}
+
+	// Skills サポートの初期化。
+	// AI目線ではスキルも通常ツールも区別なし。各スキルを tool.Tool として直接登録する。
+	if len(cfg.skillsDirs) > 0 {
+		catalog, err := skills.NewLoader(cfg.skillsDirs...).Load()
+		if err != nil {
+			eng.logf("[skills] load error: %v", err)
+		} else {
+			registered := 0
+			skillNames := make(map[string]struct{})
+			for _, t := range skills.CatalogAsTools(catalog) {
+				if err := reg.Register(t); err != nil {
+					eng.logf("[skills] register %s error: %v", t.Name(), err)
+				} else {
+					skillNames[t.Name()] = struct{}{}
+					registered++
+				}
+			}
+			if registered > 0 {
+				eng.skillToolNames = skillNames
+				eng.logf("[skills] loaded %d skill(s)", registered)
+			}
+		}
 	}
 
 	// PromptBuilder を初期化
@@ -238,6 +264,51 @@ func (e *Engine) logf(format string, args ...any) {
 	if e.logw != nil {
 		fmt.Fprintf(e.logw, format+"\n", args...)
 	}
+}
+
+// toolAlreadySucceeded はスキルツールが直近のユーザー入力以降すでに成功実行済みかを返す。
+// スキルツール以外は対象外（read_file 等は同一ターン内で複数回呼んで良い）。
+func (e *Engine) toolAlreadySucceeded(toolName string) bool {
+	if _, ok := e.skillToolNames[toolName]; !ok {
+		return false
+	}
+	msgs := e.ctxManager.Messages()
+
+	// パス1: 末尾から走査し、最後のユーザーメッセージより後の成功ツール結果IDを収集する。
+	successIDs := map[string]struct{}{}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		msg := msgs[i]
+		if msg.Role == "user" {
+			break
+		}
+		if msg.Role == "tool" {
+			content := ""
+			if msg.Content != nil {
+				content = *msg.Content
+			}
+			if !strings.HasPrefix(content, "Error:") {
+				successIDs[msg.ToolCallID] = struct{}{}
+			}
+		}
+	}
+
+	// パス2: assistant メッセージで toolName を successIDs と照合する。
+	for i := len(msgs) - 1; i >= 0; i-- {
+		msg := msgs[i]
+		if msg.Role == "user" {
+			break
+		}
+		if msg.Role == "assistant" {
+			for _, tc := range msg.ToolCalls {
+				if tc.Function.Name == toolName {
+					if _, ok := successIDs[tc.ID]; ok {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // Run はユーザー入力を受け取り、エージェントループを実行して結果を返す。
@@ -538,6 +609,21 @@ func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
 	}
 	if rr.Tool == "coordinate_tasks" && e.coordinatorEnabled {
 		return e.coordinateStep(ctx, rr, usage)
+	}
+
+	// 同一ターン内で同じツールが成功済みなら直接応答へ切り替える。
+	// スキルツールのように「呼ぶと指示が返る」型のツールは1回呼べば十分で、
+	// 2回目はモデルが内容を理解せず無限ループする原因になる。
+	if e.toolAlreadySucceeded(rr.Tool) {
+		e.logf("[router] %s は既に実行済み → 直接応答に切り替え", rr.Tool)
+		lr, err := e.chatStep(ctx, turn)
+		if err != nil {
+			return nil, err
+		}
+		lr.Usage.PromptTokens += usage.PromptTokens
+		lr.Usage.CompletionTokens += usage.CompletionTokens
+		lr.Usage.TotalTokens += usage.TotalTokens
+		return lr, nil
 	}
 
 	e.logf("[router] %s を選択 | 引数: %s", rr.Tool, string(rr.Arguments))

@@ -39,6 +39,7 @@ type engineConfig struct {
 	streamingEnabled       bool
 	streamCallback         StreamCallback
 	contextStatusCallback  ContextStatusCallback
+	skillsDirs             []string
 }
 
 // StepEvent はエージェントループの各ステップ完了時に発火するイベント。
@@ -271,4 +272,13 @@ func WithStreamCallback(cb StreamCallback) Option {
 // 各ターン開始時と縮約完了時に発火する。
 func WithContextStatusCallback(cb ContextStatusCallback) Option {
 	return func(c *engineConfig) { c.contextStatusCallback = cb }
+}
+
+// WithSkills は Agent Skills サポートを有効化する。
+// 指定ディレクトリを走査してスキルを発見し、各スキルをツールとして登録する。
+// dirs は優先度順（先頭が高優先）で指定する。プロジェクトレベルを先に渡すこと。
+func WithSkills(dirs ...string) Option {
+	return func(c *engineConfig) {
+		c.skillsDirs = append(c.skillsDirs, dirs...)
+	}
 }

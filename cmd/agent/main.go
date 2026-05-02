@@ -15,6 +15,7 @@ import (
 	"ai-agent/internal/engine"
 	"ai-agent/internal/llm"
 	"ai-agent/internal/rpc"
+	"ai-agent/internal/skills"
 	"ai-agent/internal/tools/readfile"
 )
 
@@ -49,12 +50,14 @@ func main() {
 		return
 	}
 
+	workDir, _ := os.Getwd()
 	opts := []engine.Option{
 		engine.WithMaxTurns(cfg.maxTurns),
 		engine.WithTokenLimit(envCfg.contextSize),
 		engine.WithTools(
 			readfile.New(),
 		),
+		engine.WithSkills(skills.DefaultDirs(workDir)...),
 		engine.WithLogWriter(os.Stderr),
 		engine.WithPermissionPolicy(defaultPolicy),
 	}
