@@ -34,3 +34,8 @@ sdk/js-browser/package-lock.json
 examples/browser/node_modules/
 examples/browser/dist/
 examples/browser/package-lock.json
+
+# Node examples build / cache artifacts
+examples/js/*/node_modules/
+examples/node/*/node_modules/
+examples/node/*/package-lock.json
