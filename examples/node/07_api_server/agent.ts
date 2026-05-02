@@ -284,7 +284,11 @@ export interface McpServerEntry {
 }
 
 export class McpRegistry {
-  private entries = new Map<string, { entry: McpServerEntry; close: () => Promise<void> }>();
+  private entries = new Map<string, {
+    entry: McpServerEntry;
+    tools: ToolDef[];
+    close: () => Promise<void>;
+  }>();
 
   async connect(name: string, command: string, args: string[]): Promise<McpServerEntry> {
     if (this.entries.has(name)) await this.disconnect(name);
@@ -296,9 +300,22 @@ export class McpRegistry {
     const client = new Client({ name: 'ai-agent', version: '0.1.0' });
     await client.connect(transport);
 
-    const { tools } = await client.listTools();
-    const entry: McpServerEntry = { name, command, args, toolNames: tools.map((t) => t.name) };
-    this.entries.set(name, { entry, close: () => client.close() });
+    const { tools: mcpTools } = await client.listTools();
+    const toolDefs: ToolDef[] = mcpTools.map((t) => ({
+      name: t.name,
+      description: t.description ?? t.name,
+      parameters: t.inputSchema as Record<string, unknown>,
+      readOnly: false,
+      handler: async (args2) => {
+        const res = await client.callTool({ name: t.name, arguments: args2 });
+        return (res.content as Array<{ type: string; text?: string }>)
+          .map((c) => (c.type === 'text' ? (c.text ?? '') : JSON.stringify(c)))
+          .join('\n');
+      },
+    }));
+
+    const entry: McpServerEntry = { name, command, args, toolNames: mcpTools.map((t) => t.name) };
+    this.entries.set(name, { entry, tools: toolDefs, close: () => client.close() });
     return entry;
   }
 
@@ -311,6 +328,11 @@ export class McpRegistry {
   }
 
   list(): McpServerEntry[] { return Array.from(this.entries.values()).map((e) => e.entry); }
+
+  /** 全 MCP サーバーのツール定義を返す（SessionManager が Agent に登録するため）*/
+  allTools(): ToolDef[] {
+    return Array.from(this.entries.values()).flatMap((e) => e.tools);
+  }
 
   async closeAll(): Promise<void> {
     await Promise.all(Array.from(this.entries.values()).map((e) => e.close()));
@@ -368,6 +390,9 @@ export class SessionManager {
     for (const skill of this.store.list()) {
       const s = skill;
       agent.addSkill(s.name, s.description, () => s.instructions);
+    }
+    for (const tool of this.mcpRegistry.allTools()) {
+      agent.addTool(tool);
     }
     return agent;
   }
