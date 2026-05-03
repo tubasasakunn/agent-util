@@ -151,6 +151,37 @@ func (m *Manager) Fork() *Manager {
 	return NewManager(m.tokenLimit, WithThreshold(m.threshold))
 }
 
+// Inject はメッセージを会話履歴の指定位置に挿入する。
+// position は "prepend"（先頭）/ "append"（末尾）/ "replace"（全置換）。
+// 空文字または未知の値は "append" として扱う。
+func (m *Manager) Inject(msgs []llm.Message, position string) {
+	if len(msgs) == 0 {
+		return
+	}
+	newEntries := make([]entry, len(msgs))
+	for i, msg := range msgs {
+		newEntries[i] = entry{Message: msg, Tokens: EstimateTokens(msg)}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	switch position {
+	case "prepend":
+		m.entries = append(newEntries, m.entries...)
+	case "replace":
+		m.entries = newEntries
+	default: // "append"
+		m.entries = append(m.entries, newEntries...)
+	}
+
+	m.tokenCount = 0
+	for _, e := range m.entries {
+		m.tokenCount += e.Tokens
+	}
+	m.checkThreshold()
+}
+
 // checkThreshold は使用率を確認し、閾値を超過/回復した場合にイベントを発火する。
 // mu.Lock() を取得した状態で呼び出すこと。
 func (m *Manager) checkThreshold() {

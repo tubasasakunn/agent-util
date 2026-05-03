@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"ai-agent/internal/engine"
+	"ai-agent/internal/llm"
 	"ai-agent/internal/mcp"
 	"ai-agent/pkg/protocol"
 	"ai-agent/pkg/tool"
@@ -46,6 +47,10 @@ func (h *Handlers) RegisterAll() {
 	h.server.Handle(protocol.MethodMCPRegister, h.handleMCPRegister)
 	h.server.Handle(protocol.MethodGuardRegister, h.handleGuardRegister)
 	h.server.Handle(protocol.MethodVerifierRegister, h.handleVerifierRegister)
+	// セッション管理・コンテキスト操作
+	h.server.Handle(protocol.MethodSessionHistory, h.handleSessionHistory)
+	h.server.Handle(protocol.MethodSessionInject, h.handleSessionInject)
+	h.server.Handle(protocol.MethodContextSummarize, h.handleContextSummarize)
 }
 
 // RemoteRegistry は登録済みのリモートガード/Verifier を返す（テスト/動的差し替え確認用）。
@@ -292,4 +297,88 @@ func (h *Handlers) handleVerifierRegister(ctx context.Context, params json.RawMe
 	}
 
 	return protocol.VerifierRegisterResult{Registered: registered}, nil
+}
+
+// handleSessionHistory は現在の会話履歴を返す。
+func (h *Handlers) handleSessionHistory(_ context.Context, _ json.RawMessage) (any, *protocol.RPCError) {
+	h.engMu.Lock()
+	msgs := h.eng.History()
+	h.engMu.Unlock()
+
+	sessionMsgs := make([]protocol.SessionMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		sm := protocol.SessionMessage{
+			Role:       msg.Role,
+			Content:    msg.ContentString(),
+			ToolCallID: msg.ToolCallID,
+		}
+		for _, tc := range msg.ToolCalls {
+			sm.ToolCalls = append(sm.ToolCalls, protocol.SessionToolCall{
+				ID: tc.ID,
+				Function: protocol.SessionToolCallFunction{
+					Name:      tc.Function.Name,
+					Arguments: string(tc.Function.Arguments),
+				},
+			})
+		}
+		sessionMsgs = append(sessionMsgs, sm)
+	}
+	return protocol.SessionHistoryResult{Messages: sessionMsgs, Count: len(sessionMsgs)}, nil
+}
+
+// handleSessionInject は指定位置にメッセージを注入する。
+func (h *Handlers) handleSessionInject(_ context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	var p protocol.SessionInjectParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &protocol.RPCError{Code: protocol.ErrCodeInvalidParams, Message: "invalid params: " + err.Error()}
+	}
+
+	msgs := make([]llm.Message, 0, len(p.Messages))
+	for _, sm := range p.Messages {
+		content := sm.Content
+		msg := llm.Message{
+			Role:       sm.Role,
+			Content:    &content,
+			ToolCallID: sm.ToolCallID,
+		}
+		for _, tc := range sm.ToolCalls {
+			msg.ToolCalls = append(msg.ToolCalls, llm.ToolCall{
+				ID:   tc.ID,
+				Type: "function",
+				Function: llm.FunctionCall{
+					Name:      tc.Function.Name,
+					Arguments: json.RawMessage(tc.Function.Arguments),
+				},
+			})
+		}
+		msgs = append(msgs, msg)
+	}
+
+	position := p.Position
+	if position == "" {
+		position = "append"
+	}
+
+	h.engMu.Lock()
+	h.eng.Inject(msgs, position)
+	total := len(h.eng.History())
+	h.engMu.Unlock()
+
+	return protocol.SessionInjectResult{Injected: len(msgs), Total: total}, nil
+}
+
+// handleContextSummarize は会話履歴を LLM で要約して返す。
+func (h *Handlers) handleContextSummarize(ctx context.Context, _ json.RawMessage) (any, *protocol.RPCError) {
+	h.engMu.Lock()
+	eng := h.eng
+	h.engMu.Unlock()
+
+	summary, err := eng.Summarize(ctx)
+	if err != nil {
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeInternal,
+			Message: fmt.Sprintf("context.summarize: %s", err),
+		}
+	}
+	return protocol.ContextSummarizeResult{Summary: summary, Length: len(summary)}, nil
 }

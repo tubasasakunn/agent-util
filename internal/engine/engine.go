@@ -249,6 +249,37 @@ func (e *Engine) History() []llm.Message {
 	return e.ctxManager.Messages()
 }
 
+// Inject はメッセージを会話履歴の指定位置に挿入する。
+// position は "prepend" / "append" / "replace"。
+func (e *Engine) Inject(msgs []llm.Message, position string) {
+	e.ctxManager.Inject(msgs, position)
+}
+
+// Summarize は現在の会話履歴を LLM で要約して返す。
+// 履歴が空の場合は空文字を返す。
+func (e *Engine) Summarize(ctx context.Context) (string, error) {
+	msgs := e.ctxManager.Messages()
+	if len(msgs) == 0 {
+		return "", nil
+	}
+
+	summaryReq := append(msgs, llm.Message{
+		Role:    "user",
+		Content: llm.StringPtr("上記の会話を2〜3文で簡潔に要約してください。重要なトピックと結果に焦点を当ててください。"),
+	})
+
+	resp, err := e.completer.ChatCompletion(ctx, &llm.ChatRequest{
+		Messages: summaryReq,
+	})
+	if err != nil {
+		return "", fmt.Errorf("summarize: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("summarize: %w", llm.ErrEmptyResponse)
+	}
+	return resp.Choices[0].Message.ContentString(), nil
+}
+
 // Completer は LLM クライアントを返す。Engine の再構築で共有する用途。
 func (e *Engine) Completer() llm.Completer {
 	return e.completer

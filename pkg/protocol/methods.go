@@ -17,6 +17,13 @@ const (
 	MethodStreamDelta      = "stream.delta"
 	MethodStreamEnd        = "stream.end"
 	MethodContextStatus    = "context.status"
+
+	// セッション管理（会話履歴のエクスポート・注入・スナップショット）
+	MethodSessionHistory = "session.history"
+	MethodSessionInject  = "session.inject"
+
+	// コンテキスト操作
+	MethodContextSummarize = "context.summarize"
 )
 
 // ガードのステージ識別子（GuardDefinition.Stage / GuardExecuteParams.Stage）。
@@ -313,4 +320,55 @@ type ContextStatusParams struct {
 	UsageRatio float64 `json:"usage_ratio"`
 	TokenCount int     `json:"token_count"`
 	TokenLimit int     `json:"token_limit"`
+}
+
+// --- session.history ---
+
+// SessionMessage は会話履歴の1メッセージ。role/content のフラットな表現。
+type SessionMessage struct {
+	Role       string              `json:"role"`
+	Content    string              `json:"content"`
+	ToolCalls  []SessionToolCall   `json:"tool_calls,omitempty"`
+	ToolCallID string              `json:"tool_call_id,omitempty"`
+}
+
+// SessionToolCall はアシスタントが発行したツール呼び出し。
+type SessionToolCall struct {
+	ID       string                  `json:"id"`
+	Function SessionToolCallFunction `json:"function"`
+}
+
+// SessionToolCallFunction はツール呼び出しの関数名と引数。
+type SessionToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// SessionHistoryResult は session.history の結果。
+type SessionHistoryResult struct {
+	Messages []SessionMessage `json:"messages"`
+	Count    int              `json:"count"`
+}
+
+// --- session.inject ---
+
+// SessionInjectParams は session.inject のパラメータ。
+// Position は "prepend"（先頭挿入）/ "append"（末尾追加）/ "replace"（全置換）。
+type SessionInjectParams struct {
+	Messages []SessionMessage `json:"messages"`
+	Position string           `json:"position,omitempty"` // default: "append"
+}
+
+// SessionInjectResult は session.inject の結果。
+type SessionInjectResult struct {
+	Injected int `json:"injected"`
+	Total    int `json:"total"`
+}
+
+// --- context.summarize ---
+
+// ContextSummarizeResult は context.summarize の結果。
+type ContextSummarizeResult struct {
+	Summary string `json:"summary"`
+	Length  int    `json:"length"`
 }
