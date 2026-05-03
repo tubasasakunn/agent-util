@@ -199,16 +199,18 @@ func TestCoordinateStep_ResultBudget(t *testing.T) {
 	echoTool := newMockTool("echo", "Echoes")
 	longResult := strings.Repeat("x", 3000)
 
-	mock := &concurrentMockCompleter{
-		responses: []*llm.ChatResponse{
+	// 並列実行で子エンジンの呼び出し順序が不定になるため、
+	// childRouterResp / childChatResp で種別ごとに固定応答を設定する。
+	// ルーターリクエスト（ResponseFormat=json_object）は常に "none" を返し、
+	// チャットリクエストは常に longResult を返す。
+	mock := &routingMockCompleter{
+		parentResponses: []*llm.ChatResponse{
 			chatResponse(`{"tool":"coordinate_tasks","arguments":{"tasks":[{"id":"t1","task":"long1"},{"id":"t2","task":"long2"}]},"reasoning":"test"}`),
-			chatResponse(`{"tool":"none","arguments":{},"reasoning":"ok"}`),
-			makeResponse(longResult, llm.Usage{TotalTokens: 10}),
-			chatResponse(`{"tool":"none","arguments":{},"reasoning":"ok"}`),
-			makeResponse(longResult, llm.Usage{TotalTokens: 10}),
 			chatResponse(`{"tool":"none","arguments":{},"reasoning":"done"}`),
 			makeResponse("done", llm.Usage{}),
 		},
+		childRouterResp: chatResponse(`{"tool":"none","arguments":{},"reasoning":"ok"}`),
+		childChatResp:   makeResponse(longResult, llm.Usage{TotalTokens: 10}),
 	}
 
 	// coordinateMaxChars=2000, 2タスク → 各1000文字に制限

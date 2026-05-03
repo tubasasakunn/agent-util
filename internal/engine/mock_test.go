@@ -144,6 +144,10 @@ func (m *concurrentMockCompleter) ChatCompletion(_ context.Context, req *llm.Cha
 // ユーザーメッセージに "always fail" を含む子タスクにはエラーを返し、
 // それ以外の子タスクには成功レスポンスを返す。
 // 親の呼び出し（systemPromptベースでない呼び出し）には parentResponses を順に返す。
+//
+// childRouterResp / childChatResp が非nil の場合、子エンジンのリクエスト種別
+// （ルーター = ResponseFormat あり、チャット = ResponseFormat なし）で振り分ける。
+// これにより並列実行時の応答順序不定問題を回避できる。
 type routingMockCompleter struct {
 	mu                    sync.Mutex
 	parentResponses       []*llm.ChatResponse
@@ -151,6 +155,10 @@ type routingMockCompleter struct {
 	childSuccessResponses []*llm.ChatResponse
 	childSuccessIdx       int
 	childFailErr          error
+
+	// ルーター/チャット固定応答（非nil の場合 childSuccessResponses より優先）
+	childRouterResp *llm.ChatResponse
+	childChatResp   *llm.ChatResponse
 }
 
 func (m *routingMockCompleter) ChatCompletion(_ context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
@@ -180,6 +188,15 @@ func (m *routingMockCompleter) ChatCompletion(_ context.Context, req *llm.ChatRe
 	}
 
 	if isChild {
+		// ルーター/チャット固定応答が設定されていれば種別で振り分ける
+		isRouter := req.ResponseFormat != nil && req.ResponseFormat.Type == "json_object"
+		if isRouter && m.childRouterResp != nil {
+			return m.childRouterResp, nil
+		}
+		if !isRouter && m.childChatResp != nil {
+			return m.childChatResp, nil
+		}
+
 		i := m.childSuccessIdx
 		m.childSuccessIdx++
 		if i < len(m.childSuccessResponses) {
