@@ -18,7 +18,7 @@ func TestRun_SingleTurn(t *testing.T) {
 			makeResponse("こんにちは！", llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}),
 		},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	result, err := eng.Run(context.Background(), "hello")
 	if err != nil {
@@ -42,7 +42,7 @@ func TestRun_MessageHistory(t *testing.T) {
 			makeResponse("response2", llm.Usage{}),
 		},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	if _, err := eng.Run(context.Background(), "first"); err != nil {
 		t.Fatalf("first run: %v", err)
@@ -70,7 +70,7 @@ func TestRun_SystemPrompt(t *testing.T) {
 			makeResponse("ok", llm.Usage{}),
 		},
 	}
-	eng := New(mock, WithSystemPrompt("custom prompt"))
+	eng := mustNew(mock, WithSystemPrompt("custom prompt"))
 
 	if _, err := eng.Run(context.Background(), "hello"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -91,7 +91,7 @@ func TestRun_NoSystemPrompt(t *testing.T) {
 			makeResponse("ok", llm.Usage{}),
 		},
 	}
-	eng := New(mock, WithSystemPrompt(""))
+	eng := mustNew(mock, WithSystemPrompt(""))
 
 	if _, err := eng.Run(context.Background(), "hello"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -109,7 +109,7 @@ func TestRun_ContextCanceled(t *testing.T) {
 			makeResponse("ok", llm.Usage{}),
 		},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -122,7 +122,7 @@ func TestRun_ContextCanceled(t *testing.T) {
 
 func TestRun_APIError(t *testing.T) {
 	apiErr := fmt.Errorf("server error")
-	eng := New(&mockCompleter{err: apiErr})
+	eng := mustNew(&mockCompleter{err: apiErr})
 
 	_, err := eng.Run(context.Background(), "hello")
 	if err == nil {
@@ -143,7 +143,7 @@ func TestRun_EmptyResponse_RetriedThenFails(t *testing.T) {
 			{Choices: []llm.Choice{}}, // リトライ2回目: empty → 上限到達
 		},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	_, err := eng.Run(context.Background(), "hello")
 	if !errors.Is(err, ErrMaxStepRetries) {
@@ -160,7 +160,7 @@ func TestRun_UsageTracking(t *testing.T) {
 			makeResponse("ok", llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}),
 		},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	result, err := eng.Run(context.Background(), "hello")
 	if err != nil {
@@ -205,7 +205,7 @@ func TestRun_WithTools_EndToEnd(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "echo hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -228,7 +228,7 @@ func TestToolStep_RouterSelectsNone(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(newMockTool("echo", "Echoes")))
+	eng := mustNew(mock, WithTools(newMockTool("echo", "Echoes")))
 	result, err := eng.Run(context.Background(), "1+1は?")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -253,7 +253,7 @@ func TestToolStep_ToolNotFound(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(newMockTool("echo", "Echoes")))
+	eng := mustNew(mock, WithTools(newMockTool("echo", "Echoes")))
 	result, err := eng.Run(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -300,7 +300,7 @@ func TestToolStep_ToolExecutionError(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(failTool))
+	eng := mustNew(mock, WithTools(failTool))
 	result, err := eng.Run(context.Background(), "run fail")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -328,7 +328,7 @@ func TestToolStep_ToolBusinessError(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(errTool))
+	eng := mustNew(mock, WithTools(errTool))
 	result, err := eng.Run(context.Background(), "read missing.txt")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -359,7 +359,7 @@ func TestRun_NoTools_Phase2Compatible(t *testing.T) {
 			makeResponse("direct answer", llm.Usage{PromptTokens: 5, CompletionTokens: 3, TotalTokens: 8}),
 		},
 	}
-	eng := New(mock) // WithTools なし
+	eng := mustNew(mock) // WithTools なし
 
 	result, err := eng.Run(context.Background(), "hello")
 	if err != nil {
@@ -396,7 +396,7 @@ func TestToolStep_MessageHistory(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	_, err := eng.Run(context.Background(), "echo hi")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -439,7 +439,7 @@ func TestRun_CompactionDisabled(t *testing.T) {
 			makeResponse("response", llm.Usage{}),
 		},
 	}
-	eng := New(mock) // WithCompaction なし
+	eng := mustNew(mock) // WithCompaction なし
 
 	result, err := eng.Run(context.Background(), "hello")
 	if err != nil {
@@ -474,7 +474,7 @@ func TestRun_CompactionTriggered(t *testing.T) {
 	}
 
 	cfg := agentctx.DefaultCompactionConfig()
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(echoTool),
 		WithTokenLimit(100), // 非常に小さなコンテキスト
 		WithCompaction(cfg),
@@ -507,7 +507,7 @@ func TestRun_CompactionReducesContext(t *testing.T) {
 		KeepLast:       2,
 		TargetRatio:    0.3,
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTokenLimit(200),
 		WithCompaction(cfg),
 	)
@@ -538,7 +538,7 @@ func TestRun_CompactionReducesContext(t *testing.T) {
 
 func TestBuildMessages_ReminderInserted(t *testing.T) {
 	mock := &mockCompleter{}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithReminderThreshold(4),
 		WithDynamicSection(Section{
 			Key:      "reminder",
@@ -586,7 +586,7 @@ func TestBuildMessages_ReminderInserted(t *testing.T) {
 
 func TestBuildMessages_ShortConversation_NoReminder(t *testing.T) {
 	mock := &mockCompleter{}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithReminderThreshold(8),
 		WithDynamicSection(Section{
 			Key:      "reminder",
@@ -611,7 +611,7 @@ func TestBuildMessages_ShortConversation_NoReminder(t *testing.T) {
 
 func TestBuildMessages_NoReminderSection_NoInsert(t *testing.T) {
 	mock := &mockCompleter{}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithReminderThreshold(2),
 		// WithDynamicSection なし（リマインダー未登録）
 	)
@@ -635,7 +635,7 @@ func TestBuildMessages_NoReminderSection_NoInsert(t *testing.T) {
 
 func TestBuildMessages_ReminderDisabled(t *testing.T) {
 	mock := &mockCompleter{}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithReminderThreshold(0), // 無効化
 		WithDynamicSection(Section{
 			Key:      "reminder",
@@ -671,7 +671,7 @@ func TestRun_RouterParseError_RetriedThenSucceeds(t *testing.T) {
 			chatResponse("ok!"), // call 2: chat response
 		},
 	}
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 
 	result, err := eng.Run(context.Background(), "hello")
 	if err != nil {
@@ -696,7 +696,7 @@ func TestRun_RouterParseError_MaxRetriesExceeded(t *testing.T) {
 			makeResponse("bad json 3", llm.Usage{}), // call 2: retry 2 fails → max retries
 		},
 	}
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 
 	_, err := eng.Run(context.Background(), "hello")
 	if !errors.Is(err, ErrMaxStepRetries) {
@@ -709,7 +709,7 @@ func TestRun_UserFixableError(t *testing.T) {
 	mock := &mockCompleter{
 		err: &llm.APIError{StatusCode: 401, Body: "unauthorized"},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	result, err := eng.Run(context.Background(), "hello")
 	if err != nil {
@@ -728,7 +728,7 @@ func TestRun_EmptyResponse_RetriedThenSucceeds(t *testing.T) {
 			chatResponse("recovered!"), // call 1: success
 		},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	result, err := eng.Run(context.Background(), "hello")
 	if err != nil {
@@ -755,7 +755,7 @@ func TestRun_ConsecutiveFailures_StopsAtLimit(t *testing.T) {
 			routerJSON("fail_tool", `{}`), // turn 2: router → fail_tool → cap reached
 		},
 	}
-	eng := New(mock, WithTools(failTool), WithMaxConsecutiveFailures(3))
+	eng := mustNew(mock, WithTools(failTool), WithMaxConsecutiveFailures(3))
 
 	result, err := eng.Run(context.Background(), "do something")
 	if err != nil {
@@ -789,7 +789,7 @@ func TestRun_ConsecutiveFailures_ResetsOnSuccess(t *testing.T) {
 			chatResponse("done"),           // turn 5: final answer
 		},
 	}
-	eng := New(mock, WithTools(mixedTool), WithMaxConsecutiveFailures(3), WithMaxTurns(10))
+	eng := mustNew(mock, WithTools(mixedTool), WithMaxConsecutiveFailures(3), WithMaxTurns(10))
 
 	result, err := eng.Run(context.Background(), "do something")
 	if err != nil {
@@ -810,7 +810,7 @@ func TestRun_ConsecutiveFailures_ToolNotFound(t *testing.T) {
 			routerJSON("nonexistent", `{}`), // turn 2: tool_not_found (consecutive=3) → cap
 		},
 	}
-	eng := New(mock, WithTools(echoTool), WithMaxConsecutiveFailures(3))
+	eng := mustNew(mock, WithTools(echoTool), WithMaxConsecutiveFailures(3))
 
 	result, err := eng.Run(context.Background(), "use nonexistent tool")
 	if err != nil {
@@ -835,7 +835,7 @@ func TestRun_ToolError_ReasonIsSeparated(t *testing.T) {
 			chatResponse("handled it"),    // final
 		},
 	}
-	eng := New(mock, WithTools(failTool))
+	eng := mustNew(mock, WithTools(failTool))
 
 	result, err := eng.Run(context.Background(), "try this")
 	if err != nil {
@@ -863,7 +863,7 @@ func TestRun_VerifyPass(t *testing.T) {
 			chatResponse("done"),     // final
 		},
 	}
-	eng := New(mock, WithTools(echoTool), WithVerifiers(v))
+	eng := mustNew(mock, WithTools(echoTool), WithVerifiers(v))
 
 	result, err := eng.Run(context.Background(), "echo test")
 	if err != nil {
@@ -893,7 +893,7 @@ func TestRun_VerifyFail_ThenFix(t *testing.T) {
 			chatResponse("fixed!"),   // turn 2: final
 		},
 	}
-	eng := New(mock, WithTools(echoTool), WithVerifiers(v))
+	eng := mustNew(mock, WithTools(echoTool), WithVerifiers(v))
 
 	result, err := eng.Run(context.Background(), "do it right")
 	if err != nil {
@@ -923,7 +923,7 @@ func TestRun_VerifyFail_ConsecutiveCap(t *testing.T) {
 			routerJSON("echo", `{}`), // turn 2: verify_failed (consecutive=3) → cap
 		},
 	}
-	eng := New(mock, WithTools(echoTool), WithVerifiers(v), WithMaxConsecutiveFailures(3))
+	eng := mustNew(mock, WithTools(echoTool), WithVerifiers(v), WithMaxConsecutiveFailures(3))
 
 	result, err := eng.Run(context.Background(), "keep failing")
 	if err != nil {
@@ -954,7 +954,7 @@ func TestRun_VerifySkippedOnToolError(t *testing.T) {
 			chatResponse("ok"),            // final
 		},
 	}
-	eng := New(mock, WithTools(failTool), WithVerifiers(v))
+	eng := mustNew(mock, WithTools(failTool), WithVerifiers(v))
 
 	result, err := eng.Run(context.Background(), "try")
 	if err != nil {
@@ -979,7 +979,7 @@ func TestRun_NoVerifiers_NoEffect(t *testing.T) {
 			chatResponse("done"),
 		},
 	}
-	eng := New(mock, WithTools(echoTool)) // WithVerifiers なし
+	eng := mustNew(mock, WithTools(echoTool)) // WithVerifiers なし
 
 	result, err := eng.Run(context.Background(), "echo test")
 	if err != nil {
@@ -1002,7 +1002,7 @@ func TestRun_PermissionDenied_ToolBlocked(t *testing.T) {
 			chatResponse("understood, shell is blocked"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithPermissionPolicy(PermissionPolicy{
 			DenyRules: []PermissionRule{{ToolName: "shell", Reason: "dangerous"}},
@@ -1036,7 +1036,7 @@ func TestRun_PermissionAllowed_ReadOnly(t *testing.T) {
 			chatResponse("the file contains: file content here"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(readTool),
 		WithPermissionPolicy(PermissionPolicy{}), // 空ポリシー → ReadOnly は自動承認
 	)
@@ -1068,7 +1068,7 @@ func TestRun_PermissionAsk_Approved(t *testing.T) {
 			chatResponse("done"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithPermissionPolicy(PermissionPolicy{}), // ルールなし → ask に到達
 		WithUserApprover(&mockUserApprover{responses: []bool{true}}),
@@ -1093,7 +1093,7 @@ func TestRun_PermissionAsk_Rejected(t *testing.T) {
 			chatResponse("ok, cancelled"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithPermissionPolicy(PermissionPolicy{}),
 		WithUserApprover(&mockUserApprover{responses: []bool{false}}),
@@ -1126,7 +1126,7 @@ func TestRun_NoPermissionChecker_BackwardCompat(t *testing.T) {
 			chatResponse("done"),
 		},
 	}
-	eng := New(mock, WithTools(shellTool)) // WithPermissionPolicy なし
+	eng := mustNew(mock, WithTools(shellTool)) // WithPermissionPolicy なし
 
 	result, err := eng.Run(context.Background(), "run ls")
 	if err != nil {
@@ -1147,7 +1147,7 @@ func TestRun_PermissionFailClosed_NoApprover(t *testing.T) {
 			chatResponse("denied"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithPermissionPolicy(PermissionPolicy{}), // ルールなし、approverなし
 	)
@@ -1171,7 +1171,7 @@ func TestRun_PermissionDenied_ConsecutiveFailures(t *testing.T) {
 			routerJSON("shell", `{}`), // 3回目: denied → maxConsecutiveFailures
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithPermissionPolicy(PermissionPolicy{
 			DenyRules: []PermissionRule{{ToolName: "shell", Reason: "blocked"}},
@@ -1193,7 +1193,7 @@ func TestRun_PermissionDenied_ConsecutiveFailures(t *testing.T) {
 func TestRun_InputGuard_Deny(t *testing.T) {
 	// 入力ガードレールが Deny → ループに入らず即応答
 	mock := &mockCompleter{}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithInputGuards(&mockInputGuard{
 			name:    "blocker",
 			results: []*GuardResult{{Decision: GuardDeny, Reason: "profanity detected"}},
@@ -1215,7 +1215,7 @@ func TestRun_InputGuard_Deny(t *testing.T) {
 func TestRun_InputGuard_Tripwire(t *testing.T) {
 	// 入力ガードレールが Tripwire → エラーで即時停止
 	mock := &mockCompleter{}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithInputGuards(&mockInputGuard{
 			name:    "tripwire",
 			results: []*GuardResult{{Decision: GuardTripwire, Reason: "injection attack"}},
@@ -1250,7 +1250,7 @@ func TestRun_ToolCallGuard_Deny(t *testing.T) {
 			chatResponse("understood"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithToolCallGuards(&mockToolCallGuard{
 			name:    "arg-checker",
@@ -1275,7 +1275,7 @@ func TestRun_ToolCallGuard_Tripwire(t *testing.T) {
 			routerJSON("shell", `{}`),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithToolCallGuards(&mockToolCallGuard{
 			name:    "tripwire",
@@ -1303,7 +1303,7 @@ func TestRun_OutputGuard_Deny(t *testing.T) {
 			chatResponse("sensitive data: SSN 123-45-6789"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithOutputGuards(&mockOutputGuard{
 			name:    "pii-filter",
 			results: []*GuardResult{{Decision: GuardDeny, Reason: "PII detected"}},
@@ -1329,7 +1329,7 @@ func TestRun_OutputGuard_Tripwire(t *testing.T) {
 			chatResponse("leaking secrets"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithOutputGuards(&mockOutputGuard{
 			name:    "secret-detector",
 			results: []*GuardResult{{Decision: GuardTripwire, Reason: "secret key leaked"}},
@@ -1356,7 +1356,7 @@ func TestRun_NoGuards_BackwardCompat(t *testing.T) {
 			chatResponse("hello"),
 		},
 	}
-	eng := New(mock)
+	eng := mustNew(mock)
 
 	result, err := eng.Run(context.Background(), "hi")
 	if err != nil {
@@ -1380,7 +1380,7 @@ func TestRun_GuardAndPermission_Coexist(t *testing.T) {
 			chatResponse("blocked by guard"),
 		},
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(shellTool),
 		WithPermissionPolicy(PermissionPolicy{
 			AllowRules: []PermissionRule{{ToolName: "shell", Reason: "allowed"}},

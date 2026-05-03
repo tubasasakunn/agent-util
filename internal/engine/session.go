@@ -128,7 +128,7 @@ func (sr *SessionRunner) runTask(ctx context.Context, task *TaskEntry, progress 
 		opts = append(opts, WithLogWriter(sr.logw))
 	}
 
-	eng := New(sr.completer, opts...)
+	eng := mustNew(sr.completer, opts...)
 	return eng.Run(ctx, task.Description)
 }
 

@@ -52,18 +52,29 @@ func (gr *GuardRegistry) HasGuards() bool {
 	return len(gr.inputGuards) > 0 || len(gr.toolCallGuards) > 0 || len(gr.outputGuards) > 0
 }
 
-// RunInput は入力ガードレールを順次実行する。
+// guardWithName はガード名を返すメソッドを持つ型制約。
+type guardWithName interface {
+	Name() string
+}
+
+// runGuards はガードリストを順次実行する汎用ヘルパー。
 // 最初の Deny または Tripwire で早期リターンする。
-// ガードレール自体のエラーはログしてスキップする（ガードの障害で本体を止めない）。
-func (gr *GuardRegistry) RunInput(ctx context.Context, input string, logf func(string, ...any)) *GuardResult {
-	for _, g := range gr.inputGuards {
+// ガード自体のエラーはログしてスキップする（ガードの障害で本体を止めない）。
+func runGuards[G guardWithName](
+	ctx context.Context,
+	guards []G,
+	check func(G) (*GuardResult, error),
+	logf func(string, ...any),
+	allPassedMsg string,
+) *GuardResult {
+	for _, g := range guards {
 		select {
 		case <-ctx.Done():
 			return &GuardResult{Decision: GuardDeny, Reason: "guard canceled"}
 		default:
 		}
 
-		result, err := g.CheckInput(ctx, input)
+		result, err := check(g)
 		if err != nil {
 			logf("[guard] %s error (skipped): %s", g.Name(), err)
 			continue
@@ -72,49 +83,26 @@ func (gr *GuardRegistry) RunInput(ctx context.Context, input string, logf func(s
 			return result
 		}
 	}
-	return &GuardResult{Decision: GuardAllow, Reason: "all input guards passed"}
+	return &GuardResult{Decision: GuardAllow, Reason: allPassedMsg}
+}
+
+// RunInput は入力ガードレールを順次実行する。
+func (gr *GuardRegistry) RunInput(ctx context.Context, input string, logf func(string, ...any)) *GuardResult {
+	return runGuards(ctx, gr.inputGuards, func(g InputGuard) (*GuardResult, error) {
+		return g.CheckInput(ctx, input)
+	}, logf, "all input guards passed")
 }
 
 // RunToolCall はツール呼び出しガードレールを順次実行する。
-// 最初の Deny または Tripwire で早期リターンする。
 func (gr *GuardRegistry) RunToolCall(ctx context.Context, toolName string, args json.RawMessage, logf func(string, ...any)) *GuardResult {
-	for _, g := range gr.toolCallGuards {
-		select {
-		case <-ctx.Done():
-			return &GuardResult{Decision: GuardDeny, Reason: "guard canceled"}
-		default:
-		}
-
-		result, err := g.CheckToolCall(ctx, toolName, args)
-		if err != nil {
-			logf("[guard] %s error (skipped): %s", g.Name(), err)
-			continue
-		}
-		if result.Decision != GuardAllow {
-			return result
-		}
-	}
-	return &GuardResult{Decision: GuardAllow, Reason: "all tool call guards passed"}
+	return runGuards(ctx, gr.toolCallGuards, func(g ToolCallGuard) (*GuardResult, error) {
+		return g.CheckToolCall(ctx, toolName, args)
+	}, logf, "all tool call guards passed")
 }
 
 // RunOutput は出力ガードレールを順次実行する。
-// 最初の Deny または Tripwire で早期リターンする。
 func (gr *GuardRegistry) RunOutput(ctx context.Context, output string, logf func(string, ...any)) *GuardResult {
-	for _, g := range gr.outputGuards {
-		select {
-		case <-ctx.Done():
-			return &GuardResult{Decision: GuardDeny, Reason: "guard canceled"}
-		default:
-		}
-
-		result, err := g.CheckOutput(ctx, output)
-		if err != nil {
-			logf("[guard] %s error (skipped): %s", g.Name(), err)
-			continue
-		}
-		if result.Decision != GuardAllow {
-			return result
-		}
-	}
-	return &GuardResult{Decision: GuardAllow, Reason: "all output guards passed"}
+	return runGuards(ctx, gr.outputGuards, func(g OutputGuard) (*GuardResult, error) {
+		return g.CheckOutput(ctx, output)
+	}, logf, "all output guards passed")
 }

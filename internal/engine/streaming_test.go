@@ -82,7 +82,7 @@ func TestStreaming_DeltaCallbackInOrder(t *testing.T) {
 		turns = append(turns, turn)
 	}
 
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithStreaming(true),
 		WithStreamCallback(cb),
 	)
@@ -121,7 +121,7 @@ func TestStreaming_DisabledFallsBackToChatCompletion(t *testing.T) {
 	}
 	called := false
 	cb := func(string, int) { called = true }
-	eng := New(mock,
+	eng := mustNew(mock,
 		// WithStreaming は呼ばない（デフォルト false）
 		WithStreamCallback(cb),
 	)
@@ -142,7 +142,7 @@ func TestStreaming_FallbackWhenCompleterNotStreaming(t *testing.T) {
 	}
 	called := false
 	cb := func(string, int) { called = true }
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithStreaming(true),
 		WithStreamCallback(cb),
 	)
@@ -182,7 +182,7 @@ func TestStreaming_ContextStatusCallback(t *testing.T) {
 		limits = append(limits, limit)
 	}
 
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithStreaming(true),
 		WithStreamCallback(func(string, int) {}),
 		WithContextStatusCallback(cb),
@@ -235,7 +235,7 @@ func TestStreaming_RouterAndChatSteps(t *testing.T) {
 	cb := func(d string, _ int) {
 		deltas = append(deltas, d)
 	}
-	eng := New(mock,
+	eng := mustNew(mock,
 		WithTools(newMockTool("noop", "noop")),
 		WithStreaming(true),
 		WithStreamCallback(cb),

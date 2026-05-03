@@ -51,7 +51,7 @@ func chatResp(content string) *llm.ChatResponse {
 
 func TestHandlers_ToolRegister(t *testing.T) {
 	comp := &testCompleter{}
-	eng := engine.New(comp)
+	eng := mustEngineNew(t, comp)
 
 	var buf bytes.Buffer
 	srv := New(io.NopCloser(bytes.NewReader(nil)), &buf)
@@ -80,7 +80,7 @@ func TestHandlers_ToolRegister(t *testing.T) {
 
 func TestHandlers_ToolRegisterDuplicate(t *testing.T) {
 	comp := &testCompleter{}
-	eng := engine.New(comp)
+	eng := mustEngineNew(t, comp)
 
 	var buf bytes.Buffer
 	srv := New(io.NopCloser(bytes.NewReader(nil)), &buf)
@@ -112,7 +112,7 @@ func TestHandlers_AgentRun(t *testing.T) {
 	comp := &testCompleter{
 		responses: []*llm.ChatResponse{chatResp("Hello, world!")},
 	}
-	eng := engine.New(comp)
+	eng := mustEngineNew(t, comp)
 
 	var buf bytes.Buffer
 	srv := New(io.NopCloser(bytes.NewReader(nil)), &buf)
@@ -146,7 +146,7 @@ func TestHandlers_AgentRunBusy(t *testing.T) {
 
 	// slow completer: キャンセルされるまでブロック
 	slowComp := &blockingCompleter{ctx: blockCtx}
-	slowEng := engine.New(slowComp, engine.WithMaxTurns(1))
+	slowEng := mustEngineNew(t, slowComp, engine.WithMaxTurns(1))
 	h2 := NewHandlers(slowEng, srv)
 
 	// 最初の Run を goroutine で開始
@@ -179,7 +179,7 @@ func TestHandlers_AgentAbort(t *testing.T) {
 
 	t.Run("no run in progress", func(t *testing.T) {
 		comp := &testCompleter{}
-		eng := engine.New(comp)
+		eng := mustEngineNew(t, comp)
 		h := NewHandlers(eng, srv)
 
 		result, rpcErr := h.handleAgentAbort(context.Background(), nil)
@@ -199,7 +199,7 @@ func TestHandlers_AgentAbort(t *testing.T) {
 
 func TestHandlers_AgentRunInvalidParams(t *testing.T) {
 	comp := &testCompleter{}
-	eng := engine.New(comp)
+	eng := mustEngineNew(t, comp)
 
 	var buf bytes.Buffer
 	srv := New(io.NopCloser(bytes.NewReader(nil)), &buf)
@@ -234,7 +234,7 @@ func (m *blockingCompleter) ChatCompletion(ctx context.Context, req *llm.ChatReq
 // RemoteTool 経由のツール登録が Engine.RegisterTool で動作することを確認。
 func TestHandlers_RegisteredToolAvailable(t *testing.T) {
 	comp := &testCompleter{}
-	eng := engine.New(comp)
+	eng := mustEngineNew(t, comp)
 
 	var buf bytes.Buffer
 	srv := New(io.NopCloser(bytes.NewReader(nil)), &buf)

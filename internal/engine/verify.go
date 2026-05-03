@@ -42,6 +42,11 @@ func (vr *VerifierRegistry) Len() int {
 	return len(vr.verifiers)
 }
 
+// All は登録されている全検証器を返す。Fork() での継承用。
+func (vr *VerifierRegistry) All() []Verifier {
+	return vr.verifiers
+}
+
 // RunAll は全検証器を順に実行する。
 // 1つでも失敗した場合、失敗した検証結果を集約して返す。
 // 検証器自体がエラーを返した場合はログして続行する（検証器の障害で本体を止めない）。
@@ -66,19 +71,19 @@ func (vr *VerifierRegistry) RunAll(ctx context.Context, toolName string, args []
 		default:
 		}
 
-		vr, err := v.Verify(ctx, toolName, args, result)
+		res, err := v.Verify(ctx, toolName, args, result)
 		if err != nil {
 			logf("[verify] %s error (skipped): %s", v.Name(), err)
 			details = append(details, v.Name()+": error (skipped)")
 			continue
 		}
 
-		if vr.Passed {
+		if res.Passed {
 			details = append(details, v.Name()+": passed")
 		} else {
 			allPassed = false
-			details = append(details, v.Name()+": FAILED - "+vr.Summary)
-			failSummaries = append(failSummaries, v.Name()+": "+vr.Summary)
+			details = append(details, v.Name()+": FAILED - "+res.Summary)
+			failSummaries = append(failSummaries, v.Name()+": "+res.Summary)
 		}
 	}
 

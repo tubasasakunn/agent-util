@@ -19,7 +19,7 @@ func newTestManager(msgs ...llm.Message) *agentctx.Manager {
 }
 
 func TestRouterSystemPrompt_ContainsToolList(t *testing.T) {
-	eng := New(&mockCompleter{},
+	eng := mustNew(&mockCompleter{},
 		WithSystemPrompt("You are a helpful assistant."),
 		WithTools(
 			newMockTool("echo", "Echoes a message"),
@@ -44,7 +44,7 @@ func TestRouterSystemPrompt_ContainsToolList(t *testing.T) {
 }
 
 func TestRouterSystemPrompt_EmptySystemPrompt(t *testing.T) {
-	eng := New(&mockCompleter{},
+	eng := mustNew(&mockCompleter{},
 		WithSystemPrompt(""),
 		WithTools(newMockTool("echo", "Echoes")),
 	)
@@ -61,7 +61,7 @@ func TestRouterSystemPrompt_EmptySystemPrompt(t *testing.T) {
 
 func TestRouterStep_SelectsTool(t *testing.T) {
 	routerJSON := `{"tool":"read_file","arguments":{"path":"test.txt"},"reasoning":"user wants to read a file"}`
-	eng := New(
+	eng := mustNew(
 		&mockCompleter{
 			responses: []*llm.ChatResponse{chatResponse(routerJSON)},
 		},
@@ -89,7 +89,7 @@ func TestRouterStep_SelectsTool(t *testing.T) {
 
 func TestRouterStep_SelectsNone(t *testing.T) {
 	routerJSON := `{"tool":"none","arguments":{},"reasoning":"simple math, no tool needed"}`
-	eng := New(
+	eng := mustNew(
 		&mockCompleter{
 			responses: []*llm.ChatResponse{chatResponse(routerJSON)},
 		},
@@ -107,7 +107,7 @@ func TestRouterStep_SelectsNone(t *testing.T) {
 
 func TestRouterStep_EmptyToolFallsBackToNone(t *testing.T) {
 	routerJSON := `{"tool":"","arguments":{},"reasoning":"no tool"}`
-	eng := New(
+	eng := mustNew(
 		&mockCompleter{
 			responses: []*llm.ChatResponse{chatResponse(routerJSON)},
 		},
@@ -124,7 +124,7 @@ func TestRouterStep_EmptyToolFallsBackToNone(t *testing.T) {
 }
 
 func TestRouterStep_APIError(t *testing.T) {
-	eng := New(
+	eng := mustNew(
 		&mockCompleter{
 			err: &llm.APIError{StatusCode: 500, Body: "internal server error"},
 		},
@@ -141,7 +141,7 @@ func TestRouterStep_APIError(t *testing.T) {
 }
 
 func TestBuildRouterMessages(t *testing.T) {
-	eng := New(&mockCompleter{},
+	eng := mustNew(&mockCompleter{},
 		WithSystemPrompt("base prompt"),
 		WithTools(newMockTool("echo", "Echoes")),
 	)
@@ -171,7 +171,7 @@ func TestRouterStep_ResponseFormatIsJSON(t *testing.T) {
 			chatResponse(`{"tool":"none","arguments":{},"reasoning":"test"}`),
 		},
 	}
-	eng := New(mc)
+	eng := mustNew(mc)
 	eng.ctxManager.Add(UserMessage("test"))
 
 	eng.routerStep(context.Background())
@@ -189,7 +189,7 @@ func TestRouterStep_ResponseFormatIsJSON(t *testing.T) {
 }
 
 func TestRouterSystemPrompt_ContainsDelegateAndCoordinator(t *testing.T) {
-	eng := New(&mockCompleter{},
+	eng := mustNew(&mockCompleter{},
 		WithTools(newMockTool("echo", "Echoes")),
 		WithDelegateEnabled(true),
 		WithCoordinatorEnabled(true),
@@ -206,7 +206,7 @@ func TestRouterSystemPrompt_ContainsDelegateAndCoordinator(t *testing.T) {
 }
 
 func TestRouterSystemPrompt_DisabledDelegateAndCoordinator(t *testing.T) {
-	eng := New(&mockCompleter{},
+	eng := mustNew(&mockCompleter{},
 		WithTools(newMockTool("echo", "Echoes")),
 		WithDelegateEnabled(false),
 		WithCoordinatorEnabled(false),

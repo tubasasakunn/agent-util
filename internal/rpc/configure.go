@@ -204,7 +204,10 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 		opts = append(opts, engine.WithTools(tools...))
 	}
 
-	newEng := engine.New(prev.Completer(), opts...)
+	newEng, err := engine.New(prev.Completer(), opts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("rebuild engine: %w", err)
+	}
 
 	for _, m := range prev.History() {
 		newEng.AddMessage(m)

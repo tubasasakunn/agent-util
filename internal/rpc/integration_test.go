@@ -134,7 +134,7 @@ func TestIntegration_SimpleRun(t *testing.T) {
 	serverToClient_r, serverToClient_w := io.Pipe()
 
 	comp := &integrationCompleter{response: "Hello from agent!"}
-	eng := engine.New(comp, engine.WithMaxTurns(5))
+	eng := mustEngineNew(t, comp, engine.WithMaxTurns(5))
 
 	srv := New(clientToServer_r, serverToClient_w)
 	handlers := NewHandlers(eng, srv)
@@ -202,7 +202,7 @@ func TestIntegration_ToolRegisterAndRun(t *testing.T) {
 		toolArgs: `{"name":"Alice"}`,
 		response: "Greeting complete!",
 	}
-	eng := engine.New(comp, engine.WithMaxTurns(5))
+	eng := mustEngineNew(t, comp, engine.WithMaxTurns(5))
 
 	srv := New(clientToServer_r, serverToClient_w)
 	handlers := NewHandlers(eng, srv)
@@ -313,7 +313,7 @@ func TestIntegration_StreamNotifications(t *testing.T) {
 	serverToClient_r, serverToClient_w := io.Pipe()
 
 	comp := &integrationCompleter{response: "result"}
-	eng := engine.New(comp,
+	eng := mustEngineNew(t, comp,
 		engine.WithMaxTurns(5),
 		engine.WithStepCallback(func(evt engine.StepEvent) {
 			// コールバックが呼ばれることを確認（Notifier は handlers で統合済み）
@@ -389,7 +389,7 @@ func TestIntegration_InvalidMethod(t *testing.T) {
 	serverToClient_r, serverToClient_w := io.Pipe()
 
 	comp := &integrationCompleter{}
-	eng := engine.New(comp)
+	eng := mustEngineNew(t, comp)
 
 	srv := New(clientToServer_r, serverToClient_w)
 	handlers := NewHandlers(eng, srv)
@@ -429,7 +429,7 @@ func TestIntegration_AgentAbort(t *testing.T) {
 	defer blockCancel()
 
 	comp := &blockingCompleter{ctx: blockCtx}
-	eng := engine.New(comp, engine.WithMaxTurns(1))
+	eng := mustEngineNew(t, comp, engine.WithMaxTurns(1))
 
 	srv := New(clientToServer_r, serverToClient_w)
 	handlers := NewHandlers(eng, srv)
@@ -499,7 +499,7 @@ func TestIntegration_RemoteGuardDeniesInput(t *testing.T) {
 	serverToClient_r, serverToClient_w := io.Pipe()
 
 	comp := &integrationCompleter{response: "should not be reached"}
-	eng := engine.New(comp, engine.WithMaxTurns(3))
+	eng := mustEngineNew(t, comp, engine.WithMaxTurns(3))
 
 	srv := New(clientToServer_r, serverToClient_w)
 	handlers := NewHandlers(eng, srv)
@@ -623,7 +623,7 @@ func TestIntegration_RemoteVerifierFails(t *testing.T) {
 		toolArgs: `{"name":"Alice"}`,
 		response: "done",
 	}
-	eng := engine.New(comp, engine.WithMaxTurns(5))
+	eng := mustEngineNew(t, comp, engine.WithMaxTurns(5))
 
 	srv := New(clientToServer_r, serverToClient_w)
 	handlers := NewHandlers(eng, srv)

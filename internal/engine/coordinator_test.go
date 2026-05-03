@@ -33,7 +33,7 @@ func TestCoordinateStep_BasicParallel(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "run two tasks")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -82,7 +82,7 @@ func TestCoordinateStep_PartialFailure(t *testing.T) {
 		childFailErr: ErrMaxTurnsReached,
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "run two tasks")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -116,7 +116,7 @@ func TestCoordinateStep_EmptyTasks(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "test empty")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -153,7 +153,7 @@ func TestCoordinateStep_ContextCancellation(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	_, err := eng.Run(ctx, "test cancel")
 
 	if err == nil {
@@ -181,7 +181,7 @@ func TestCoordinateStep_NestingPrevention(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	_, err := eng.Run(context.Background(), "test nesting")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -212,7 +212,7 @@ func TestCoordinateStep_ResultBudget(t *testing.T) {
 	}
 
 	// coordinateMaxChars=2000, 2タスク → 各1000文字に制限
-	eng := New(mock, WithTools(echoTool), WithCoordinateMaxChars(2000))
+	eng := mustNew(mock, WithTools(echoTool), WithCoordinateMaxChars(2000))
 	_, err := eng.Run(context.Background(), "long tasks")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -242,7 +242,7 @@ func TestCoordinateStep_InvalidArgs(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "test invalid")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

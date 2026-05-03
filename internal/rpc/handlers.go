@@ -70,6 +70,18 @@ func (h *Handlers) CloseAll() {
 	}
 }
 
+// unmarshalParams は JSON-RPC params を型 T にデコードする共通ヘルパー。
+func unmarshalParams[T any](params json.RawMessage) (T, *protocol.RPCError) {
+	var p T
+	if err := json.Unmarshal(params, &p); err != nil {
+		return p, &protocol.RPCError{
+			Code:    protocol.ErrCodeInvalidParams,
+			Message: "invalid params: " + err.Error(),
+		}
+	}
+	return p, nil
+}
+
 func (h *Handlers) handleAgentRun(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
 	h.runMu.Lock()
 	if h.runCancel != nil {
@@ -90,12 +102,9 @@ func (h *Handlers) handleAgentRun(ctx context.Context, params json.RawMessage) (
 		h.runMu.Unlock()
 	}()
 
-	var p protocol.AgentRunParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &protocol.RPCError{
-			Code:    protocol.ErrCodeInvalidParams,
-			Message: "invalid params: " + err.Error(),
-		}
+	p, rpcErr := unmarshalParams[protocol.AgentRunParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	result, err := h.Engine().Run(runCtx, p.Prompt)
@@ -132,12 +141,9 @@ func (h *Handlers) handleAgentConfigure(ctx context.Context, params json.RawMess
 		}
 	}
 
-	var p protocol.AgentConfigureParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &protocol.RPCError{
-			Code:    protocol.ErrCodeInvalidParams,
-			Message: "invalid params: " + err.Error(),
-		}
+	p, rpcErr := unmarshalParams[protocol.AgentConfigureParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	h.engMu.Lock()
@@ -154,7 +160,7 @@ func (h *Handlers) handleAgentConfigure(ctx context.Context, params json.RawMess
 	return protocol.AgentConfigureResult{Applied: applied}, nil
 }
 
-func (h *Handlers) handleAgentAbort(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+func (h *Handlers) handleAgentAbort(_ context.Context, _ json.RawMessage) (any, *protocol.RPCError) {
 	h.runMu.Lock()
 	cancel := h.runCancel
 	h.runMu.Unlock()
@@ -166,13 +172,10 @@ func (h *Handlers) handleAgentAbort(ctx context.Context, params json.RawMessage)
 	return protocol.AgentAbortResult{Aborted: true}, nil
 }
 
-func (h *Handlers) handleToolRegister(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
-	var p protocol.ToolRegisterParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &protocol.RPCError{
-			Code:    protocol.ErrCodeInvalidParams,
-			Message: "invalid params: " + err.Error(),
-		}
+func (h *Handlers) handleToolRegister(_ context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	p, rpcErr := unmarshalParams[protocol.ToolRegisterParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	registered := 0
@@ -197,12 +200,9 @@ func (h *Handlers) handleToolRegister(ctx context.Context, params json.RawMessag
 }
 
 func (h *Handlers) handleMCPRegister(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
-	var p protocol.MCPRegisterParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &protocol.RPCError{
-			Code:    protocol.ErrCodeInvalidParams,
-			Message: "invalid params: " + err.Error(),
-		}
+	p, rpcErr := unmarshalParams[protocol.MCPRegisterParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	cfg := mcp.ServerConfig{
@@ -238,13 +238,10 @@ func (h *Handlers) handleMCPRegister(ctx context.Context, params json.RawMessage
 	return protocol.MCPRegisterResult{Tools: names}, nil
 }
 
-func (h *Handlers) handleGuardRegister(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
-	var p protocol.GuardRegisterParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &protocol.RPCError{
-			Code:    protocol.ErrCodeInvalidParams,
-			Message: "invalid params: " + err.Error(),
-		}
+func (h *Handlers) handleGuardRegister(_ context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	p, rpcErr := unmarshalParams[protocol.GuardRegisterParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	registered := 0
@@ -275,13 +272,10 @@ func (h *Handlers) handleGuardRegister(ctx context.Context, params json.RawMessa
 	return protocol.GuardRegisterResult{Registered: registered}, nil
 }
 
-func (h *Handlers) handleVerifierRegister(ctx context.Context, params json.RawMessage) (any, *protocol.RPCError) {
-	var p protocol.VerifierRegisterParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &protocol.RPCError{
-			Code:    protocol.ErrCodeInvalidParams,
-			Message: "invalid params: " + err.Error(),
-		}
+func (h *Handlers) handleVerifierRegister(_ context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	p, rpcErr := unmarshalParams[protocol.VerifierRegisterParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	registered := 0
@@ -328,9 +322,9 @@ func (h *Handlers) handleSessionHistory(_ context.Context, _ json.RawMessage) (a
 
 // handleSessionInject は指定位置にメッセージを注入する。
 func (h *Handlers) handleSessionInject(_ context.Context, params json.RawMessage) (any, *protocol.RPCError) {
-	var p protocol.SessionInjectParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &protocol.RPCError{Code: protocol.ErrCodeInvalidParams, Message: "invalid params: " + err.Error()}
+	p, rpcErr := unmarshalParams[protocol.SessionInjectParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 
 	msgs := make([]llm.Message, 0, len(p.Messages))

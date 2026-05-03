@@ -65,7 +65,7 @@ func TestEngine_WithMemoryEntries(t *testing.T) {
 		{Key: "adr-001", Summary: "JSON-RPC over stdio", Path: "decisions/001.md"},
 	}
 
-	eng := New(&mockCompleter{},
+	eng := mustNew(&mockCompleter{},
 		WithMemoryEntries(entries...),
 	)
 
@@ -85,14 +85,14 @@ func TestEngine_WithMemoryEntries(t *testing.T) {
 }
 
 func TestEngine_WithMemoryEntries_ReservedTokens(t *testing.T) {
-	engWithout := New(&mockCompleter{})
+	engWithout := mustNew(&mockCompleter{})
 	tokensWithout := engWithout.promptBuilder.EstimateReservedTokens()
 
 	entries := []MemoryEntry{
 		{Key: "adr-001", Summary: "JSON-RPC over stdio", Path: "decisions/001.md"},
 		{Key: "project", Summary: "Project structure", Path: "CLAUDE.md"},
 	}
-	engWith := New(&mockCompleter{},
+	engWith := mustNew(&mockCompleter{},
 		WithMemoryEntries(entries...),
 	)
 	tokensWith := engWith.promptBuilder.EstimateReservedTokens()

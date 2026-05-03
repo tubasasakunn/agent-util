@@ -41,8 +41,8 @@ type Engine struct {
 	skillToolNames         map[string]struct{}
 }
 
-// New は Engine を生成する。
-func New(completer llm.Completer, opts ...Option) *Engine {
+// New は Engine を生成する。ツール名の重複など設定エラーは error で返す。
+func New(completer llm.Completer, opts ...Option) (*Engine, error) {
 	cfg := defaultEngineConfig()
 	for _, opt := range opts {
 		opt(&cfg)
@@ -51,7 +51,7 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 	reg := NewRegistry()
 	for _, t := range cfg.tools {
 		if err := reg.Register(t); err != nil {
-			panic(fmt.Sprintf("engine: %v", err))
+			return nil, fmt.Errorf("engine: %w", err)
 		}
 	}
 
@@ -150,13 +150,14 @@ func New(completer llm.Completer, opts ...Option) *Engine {
 	// システムプロンプトとツール定義のトークン数を予約
 	eng.updateReservedTokens()
 
-	return eng
+	return eng, nil
 }
 
 // Fork は同じ Completer とツールセットを共有する子 Engine を生成する。
 // コンテキストはクリーンな状態で開始する。
 // opts で systemPrompt, maxTurns 等を上書き可能。
-// delegate_task は無効化されネスト再帰を防止する。
+// delegate_task / coordinate_tasks は無効化されネスト再帰を防止する。
+// PermissionPolicy / Guards / Verifiers は親から継承する。
 func (e *Engine) Fork(opts ...Option) *Engine {
 	// 親の設定をベースに子Engineの設定を構築
 	cfg := engineConfig{
@@ -186,11 +187,16 @@ func (e *Engine) Fork(opts ...Option) *Engine {
 		cfg.toolCallGuards = e.guards.ToolCallGuards()
 		cfg.outputGuards = e.guards.OutputGuards()
 	}
+	// Verifiers を継承
+	if e.verifiers != nil {
+		cfg.verifiers = e.verifiers.All()
+	}
+
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
-	return New(e.completer,
+	forkOpts := []Option{
 		WithMaxTurns(cfg.maxTurns),
 		WithSystemPrompt(cfg.systemPrompt),
 		WithTools(cfg.tools...),
@@ -204,7 +210,35 @@ func (e *Engine) Fork(opts ...Option) *Engine {
 		WithMaxStepRetries(cfg.maxStepRetries),
 		WithMaxConsecutiveFailures(cfg.maxConsecutiveFailures),
 		withOptionalCompaction(cfg.compaction),
-	)
+	}
+	if cfg.permissionPolicy != nil {
+		forkOpts = append(forkOpts, WithPermissionPolicy(*cfg.permissionPolicy))
+	}
+	if len(cfg.inputGuards) > 0 {
+		forkOpts = append(forkOpts, WithInputGuards(cfg.inputGuards...))
+	}
+	if len(cfg.toolCallGuards) > 0 {
+		forkOpts = append(forkOpts, WithToolCallGuards(cfg.toolCallGuards...))
+	}
+	if len(cfg.outputGuards) > 0 {
+		forkOpts = append(forkOpts, WithOutputGuards(cfg.outputGuards...))
+	}
+	if len(cfg.verifiers) > 0 {
+		forkOpts = append(forkOpts, WithVerifiers(cfg.verifiers...))
+	}
+
+	return mustNew(e.completer, forkOpts...)
+}
+
+// mustNew は Fork/SessionRunner 等の内部用途でのみ使用する New のラッパー。
+// 親 Engine から継承したツールセットは重複しないことが保証されるため、
+// エラーが発生した場合は内部的な論理エラーとして panic する。
+func mustNew(completer llm.Completer, opts ...Option) *Engine {
+	eng, err := New(completer, opts...)
+	if err != nil {
+		panic(fmt.Sprintf("engine: internal error in Fork/Session: %v", err))
+	}
+	return eng
 }
 
 // withOptionalCompaction は compaction が非nil の場合のみ WithCompaction を適用する。
@@ -255,6 +289,9 @@ func (e *Engine) Inject(msgs []llm.Message, position string) {
 	e.ctxManager.Inject(msgs, position)
 }
 
+// summarizePrompt は Summarize() で LLM に送る要約指示プロンプト。
+const summarizePrompt = "上記の会話を2〜3文で簡潔に要約してください。重要なトピックと結果に焦点を当ててください。"
+
 // Summarize は現在の会話履歴を LLM で要約して返す。
 // 履歴が空の場合は空文字を返す。
 func (e *Engine) Summarize(ctx context.Context) (string, error) {
@@ -265,7 +302,7 @@ func (e *Engine) Summarize(ctx context.Context) (string, error) {
 
 	summaryReq := append(msgs, llm.Message{
 		Role:    "user",
-		Content: llm.StringPtr("上記の会話を2〜3文で簡潔に要約してください。重要なトピックと結果に焦点を当ててください。"),
+		Content: llm.StringPtr(summarizePrompt),
 	})
 
 	resp, err := e.completer.ChatCompletion(ctx, &llm.ChatRequest{
@@ -613,25 +650,16 @@ func (e *Engine) chatStep(ctx context.Context, turn int) (*LoopResult, error) {
 
 // toolStep はルーターステップ + ツール実行。
 func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
-	// 1. ルーターでツール選択
 	e.logf("[router] ツールを選択中...")
 	rr, usage, err := e.routerStep(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tool step: %w", err)
 	}
 
-	// 2. tool == "none" → 通常チャットで最終応答を生成
+	// tool == "none" → 通常チャットで最終応答を生成
 	if rr.Tool == "none" {
 		e.logf("[router] ツール不要 → 直接応答 (%s)", rr.Reasoning)
-		lr, err := e.chatStep(ctx, turn)
-		if err != nil {
-			return nil, err
-		}
-		// chatStep の usage にルーターの usage を加算
-		lr.Usage.PromptTokens += usage.PromptTokens
-		lr.Usage.CompletionTokens += usage.CompletionTokens
-		lr.Usage.TotalTokens += usage.TotalTokens
-		return lr, nil
+		return e.chatStepWithRouterUsage(ctx, turn, usage)
 	}
 
 	// バーチャルツールの検出（ADR-006）
@@ -642,19 +670,12 @@ func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
 		return e.coordinateStep(ctx, rr, usage)
 	}
 
-	// 同一ターン内で同じツールが成功済みなら直接応答へ切り替える。
-	// スキルツールのように「呼ぶと指示が返る」型のツールは1回呼べば十分で、
+	// 同一ターン内で同じスキルツールが成功済みなら直接応答へ切り替える。
+	// 「呼ぶと指示が返る」型のツールは1回呼べば十分で、
 	// 2回目はモデルが内容を理解せず無限ループする原因になる。
 	if e.toolAlreadySucceeded(rr.Tool) {
 		e.logf("[router] %s は既に実行済み → 直接応答に切り替え", rr.Tool)
-		lr, err := e.chatStep(ctx, turn)
-		if err != nil {
-			return nil, err
-		}
-		lr.Usage.PromptTokens += usage.PromptTokens
-		lr.Usage.CompletionTokens += usage.CompletionTokens
-		lr.Usage.TotalTokens += usage.TotalTokens
-		return lr, nil
+		return e.chatStepWithRouterUsage(ctx, turn, usage)
 	}
 
 	e.logf("[router] %s を選択 | 引数: %s", rr.Tool, string(rr.Arguments))
@@ -662,23 +683,56 @@ func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
 		e.logf("[router] 理由: %s", rr.Reasoning)
 	}
 
-	// 3. ツールの取得
+	// ツールの取得
 	t, ok := e.registry.Get(rr.Tool)
 	if !ok {
-		e.logf("[tool] %s が見つかりません", rr.Tool)
-		callID := generateCallID()
-		errContent := fmt.Sprintf("Error: tool %q not found. Available tools: %s",
-			rr.Tool, e.availableToolNames())
-		e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
-		e.ctxManager.Add(ToolResultMessage(callID, errContent))
-		return &LoopResult{
-			Kind:   Continue,
-			Reason: "tool_not_found",
-			Usage:  *usage,
-		}, nil
+		return e.recordToolNotFound(rr, usage), nil
 	}
 
-	// 4. パーミッションチェック（Phase 9）
+	// パーミッション + ガードチェック
+	if lr, err := e.checkToolAccess(ctx, t, rr, usage); lr != nil || err != nil {
+		return lr, err
+	}
+
+	// ツール実行と結果記録
+	content, reason := e.executeAndRecord(ctx, t, rr)
+
+	// Verify: 検証ループ（PEVサイクルの V）
+	if reason == "tool_use" && e.verifiers.Len() > 0 {
+		if lr := e.runVerification(ctx, rr, content, usage); lr != nil {
+			return lr, nil
+		}
+	}
+
+	return &LoopResult{Kind: Continue, Reason: reason, Usage: *usage}, nil
+}
+
+// chatStepWithRouterUsage はチャットステップを実行し、ルーターのusageを加算して返す。
+func (e *Engine) chatStepWithRouterUsage(ctx context.Context, turn int, routerUsage *llm.Usage) (*LoopResult, error) {
+	lr, err := e.chatStep(ctx, turn)
+	if err != nil {
+		return nil, err
+	}
+	lr.Usage.PromptTokens += routerUsage.PromptTokens
+	lr.Usage.CompletionTokens += routerUsage.CompletionTokens
+	lr.Usage.TotalTokens += routerUsage.TotalTokens
+	return lr, nil
+}
+
+// recordToolNotFound はツール未発見時に履歴へエラーを記録し、LoopResultを返す。
+func (e *Engine) recordToolNotFound(rr *routerResponse, usage *llm.Usage) *LoopResult {
+	e.logf("[tool] %s が見つかりません", rr.Tool)
+	callID := generateCallID()
+	errContent := fmt.Sprintf("Error: tool %q not found. Available tools: %s",
+		rr.Tool, e.availableToolNames())
+	e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
+	e.ctxManager.Add(ToolResultMessage(callID, errContent))
+	return &LoopResult{Kind: Continue, Reason: "tool_not_found", Usage: *usage}
+}
+
+// checkToolAccess はパーミッション→ガードの順でアクセス制御を実行する。
+// ブロック時は (*LoopResult, nil)、トリップワイヤ時は (nil, error)、通過時は (nil, nil) を返す。
+func (e *Engine) checkToolAccess(ctx context.Context, t tool.Tool, rr *routerResponse, usage *llm.Usage) (*LoopResult, error) {
 	if e.permChecker != nil {
 		decision := e.permChecker.Check(ctx, t, rr.Arguments)
 		if decision == PermDenied {
@@ -687,15 +741,10 @@ func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
 			e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
 			e.ctxManager.Add(ToolResultMessage(callID,
 				fmt.Sprintf("Permission denied: tool %q is not allowed by the current policy.", rr.Tool)))
-			return &LoopResult{
-				Kind:   Continue,
-				Reason: "permission_denied",
-				Usage:  *usage,
-			}, nil
+			return &LoopResult{Kind: Continue, Reason: "permission_denied", Usage: *usage}, nil
 		}
 	}
 
-	// 5. ツール呼び出しガードレール（Phase 9）
 	if e.guards != nil {
 		gr := e.guards.RunToolCall(ctx, rr.Tool, rr.Arguments, e.logf)
 		switch gr.Decision {
@@ -705,17 +754,16 @@ func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
 			e.logf("[guard] %s ブロック: %s", rr.Tool, gr.Reason)
 			callID := generateCallID()
 			e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
-			e.ctxManager.Add(ToolResultMessage(callID,
-				fmt.Sprintf("Blocked by guard: %s", gr.Reason)))
-			return &LoopResult{
-				Kind:   Continue,
-				Reason: "guard_blocked",
-				Usage:  *usage,
-			}, nil
+			e.ctxManager.Add(ToolResultMessage(callID, fmt.Sprintf("Blocked by guard: %s", gr.Reason)))
+			return &LoopResult{Kind: Continue, Reason: "guard_blocked", Usage: *usage}, nil
 		}
 	}
+	return nil, nil
+}
 
-	// 6. ツール実行（workDir があればコンテキストに注入）
+// executeAndRecord はツールを実行し、呼び出し・結果メッセージを履歴に追加する。
+// 戻り値は resultContent と reason。
+func (e *Engine) executeAndRecord(ctx context.Context, t tool.Tool, rr *routerResponse) (string, string) {
 	e.logf("[tool] %s を実行中...", rr.Tool)
 	toolCtx := ctx
 	if e.workDir != "" {
@@ -723,54 +771,44 @@ func (e *Engine) toolStep(ctx context.Context, turn int) (*LoopResult, error) {
 	}
 	result, execErr := t.Execute(toolCtx, rr.Arguments)
 
-	// 7. 合成メッセージの構築と履歴への追加
 	callID := generateCallID()
 	e.ctxManager.Add(ToolCallMessage(callID, rr.Tool, rr.Arguments))
 
-	var resultContent string
-	var reason string
+	var content, reason string
 	switch {
 	case execErr != nil:
-		resultContent = fmt.Sprintf("Error executing tool %q: %s", rr.Tool, execErr.Error())
+		content = fmt.Sprintf("Error executing tool %q: %s", rr.Tool, execErr.Error())
 		reason = "tool_error"
 		e.logf("[tool] %s 実行エラー: %s", rr.Tool, execErr.Error())
 	case result.IsError:
-		resultContent = fmt.Sprintf("Error: %s", result.Content)
+		content = fmt.Sprintf("Error: %s", result.Content)
 		reason = "tool_error"
 		e.logf("[tool] %s エラー: %s", rr.Tool, result.Content)
 	default:
-		resultContent = result.Content
+		content = result.Content
 		reason = "tool_use"
-		preview := resultContent
+		preview := content
 		if len(preview) > 100 {
 			preview = preview[:100] + "..."
 		}
-		e.logf("[tool] %s 完了 (%d bytes): %s", rr.Tool, len(resultContent), preview)
+		e.logf("[tool] %s 完了 (%d bytes): %s", rr.Tool, len(content), preview)
 	}
-	e.ctxManager.Add(ToolResultMessage(callID, resultContent))
+	e.ctxManager.Add(ToolResultMessage(callID, content))
+	return content, reason
+}
 
-	// 8. Verify: 検証ループ（PEVサイクルの V）
-	// 検証スキップ条件: ツール実行エラー時 / 検証器未登録
-	if reason == "tool_use" && e.verifiers.Len() > 0 {
-		vr := e.verifiers.RunAll(ctx, rr.Tool, rr.Arguments, resultContent, e.logf)
-		if !vr.Passed {
-			e.logf("[verify] %s 検証失敗: %s", rr.Tool, vr.Summary)
-			verifyMsg := fmt.Sprintf("[Verification Failed]\n%s\nPlease fix the issues and try again.", vr.Summary)
-			e.ctxManager.Add(UserMessage(verifyMsg))
-			return &LoopResult{
-				Kind:   Continue,
-				Reason: "verify_failed",
-				Usage:  *usage,
-			}, nil
-		}
-		e.logf("[verify] %s 検証パス", rr.Tool)
+// runVerification は検証器を実行し、失敗時は検証エラーを履歴に追加して LoopResult を返す。
+// 通過時は nil を返す。
+func (e *Engine) runVerification(ctx context.Context, rr *routerResponse, content string, usage *llm.Usage) *LoopResult {
+	vr := e.verifiers.RunAll(ctx, rr.Tool, rr.Arguments, content, e.logf)
+	if !vr.Passed {
+		e.logf("[verify] %s 検証失敗: %s", rr.Tool, vr.Summary)
+		verifyMsg := fmt.Sprintf("[Verification Failed]\n%s\nPlease fix the issues and try again.", vr.Summary)
+		e.ctxManager.Add(UserMessage(verifyMsg))
+		return &LoopResult{Kind: Continue, Reason: "verify_failed", Usage: *usage}
 	}
-
-	return &LoopResult{
-		Kind:   Continue,
-		Reason: reason,
-		Usage:  *usage,
-	}, nil
+	e.logf("[verify] %s 検証パス", rr.Tool)
+	return nil
 }
 
 // availableToolNames はカンマ区切りのツール名リストを返す。

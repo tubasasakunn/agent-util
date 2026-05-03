@@ -18,7 +18,7 @@ func newTestHandlers(t *testing.T, comp llm.Completer, opts ...engine.Option) *H
 	t.Helper()
 	var buf bytes.Buffer
 	srv := New(io.NopCloser(bytes.NewReader(nil)), &buf)
-	eng := engine.New(comp, opts...)
+	eng := mustEngineNew(t, comp, opts...)
 	return NewHandlers(eng, srv)
 }
 
@@ -26,7 +26,7 @@ func newTestHandlers(t *testing.T, comp llm.Completer, opts ...engine.Option) *H
 // stream.delta / context.status 通知を観測したいテストで使用する。
 func newTestHandlersWithServer(t *testing.T, comp llm.Completer, srv *Server, opts ...engine.Option) *Handlers {
 	t.Helper()
-	eng := engine.New(comp, opts...)
+	eng := mustEngineNew(t, comp, opts...)
 	return NewHandlers(eng, srv)
 }
 

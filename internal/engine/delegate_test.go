@@ -31,7 +31,7 @@ func TestDelegateStep_BasicFlow(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "analyze this complex topic")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -77,7 +77,7 @@ func TestDelegateStep_ResultCondensation(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool), WithDelegateMaxChars(500))
+	eng := mustNew(mock, WithTools(echoTool), WithDelegateMaxChars(500))
 	result, err := eng.Run(context.Background(), "generate long text")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -123,7 +123,7 @@ func TestDelegateStep_ChildEngineError(t *testing.T) {
 
 	mock := &mockCompleter{responses: responses}
 
-	eng := New(mock, WithTools(echoTool), WithMaxTurns(5))
+	eng := mustNew(mock, WithTools(echoTool), WithMaxTurns(5))
 	result, err := eng.Run(context.Background(), "do something complex")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -195,7 +195,7 @@ func TestDelegateStep_ContextCancellation(t *testing.T) {
 	_ = mock2
 	_ = callIdx
 
-	eng := New(cancelMock, WithTools(echoTool))
+	eng := mustNew(cancelMock, WithTools(echoTool))
 	_, err := eng.Run(ctx, "test cancellation")
 
 	// context.Canceled が返ること（子Engineのエラーがバブルアップ）
@@ -254,7 +254,7 @@ func TestDelegateStep_InvalidArgs(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -300,7 +300,7 @@ func TestDelegateStep_NestingPrevention(t *testing.T) {
 		},
 	}
 
-	eng := New(trackingMock, WithTools(echoTool))
+	eng := mustNew(trackingMock, WithTools(echoTool))
 	_, err := eng.Run(context.Background(), "test nesting")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -339,7 +339,7 @@ func TestFork_InheritsSettings(t *testing.T) {
 	mock := &mockCompleter{}
 	echoTool := newMockTool("echo", "Echoes")
 
-	parent := New(mock,
+	parent := mustNew(mock,
 		WithTools(echoTool),
 		WithTokenLimit(4096),
 		WithMaxTurns(5),
@@ -376,7 +376,7 @@ func TestFork_IndependentContext(t *testing.T) {
 			makeResponse("parent response", llm.Usage{}),
 		},
 	}
-	parent := New(mock)
+	parent := mustNew(mock)
 
 	// 親にメッセージを追加
 	parent.ctxManager.Add(llm.Message{Role: "user", Content: llm.StringPtr("hello")})
@@ -396,7 +396,7 @@ func TestFork_IndependentContext(t *testing.T) {
 
 func TestFork_OverrideOptions(t *testing.T) {
 	mock := &mockCompleter{}
-	parent := New(mock, WithMaxTurns(10), WithSystemPrompt("parent prompt"))
+	parent := mustNew(mock, WithMaxTurns(10), WithSystemPrompt("parent prompt"))
 
 	child := parent.Fork(
 		WithMaxTurns(3),
@@ -412,7 +412,7 @@ func TestFork_OverrideOptions(t *testing.T) {
 }
 
 func TestCondenseDelegateResult_Short(t *testing.T) {
-	eng := New(&mockCompleter{}, WithDelegateMaxChars(1500))
+	eng := mustNew(&mockCompleter{}, WithDelegateMaxChars(1500))
 
 	result := &Result{
 		Response: "short answer",
@@ -433,7 +433,7 @@ func TestCondenseDelegateResult_Short(t *testing.T) {
 }
 
 func TestCondenseDelegateResult_Long(t *testing.T) {
-	eng := New(&mockCompleter{}, WithDelegateMaxChars(100))
+	eng := mustNew(&mockCompleter{}, WithDelegateMaxChars(100))
 
 	longText := strings.Repeat("abcde", 200) // 1000 chars
 	result := &Result{
@@ -474,7 +474,7 @@ func TestDelegateStep_WithContext(t *testing.T) {
 		},
 	}
 
-	eng := New(trackingMock, WithTools(echoTool))
+	eng := mustNew(trackingMock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "what's in the file?")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -524,7 +524,7 @@ func TestDelegateStep_WorktreeMode(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool, workDirTool), WithWorkDir(repoDir))
+	eng := mustNew(mock, WithTools(echoTool, workDirTool), WithWorkDir(repoDir))
 	result, err := eng.Run(context.Background(), "test worktree")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -564,7 +564,7 @@ func TestDelegateStep_WorktreeFallback(t *testing.T) {
 
 	// 非 git ディレクトリを workDir に指定
 	tmpDir := t.TempDir()
-	eng := New(mock, WithTools(echoTool), WithWorkDir(tmpDir))
+	eng := mustNew(mock, WithTools(echoTool), WithWorkDir(tmpDir))
 	result, err := eng.Run(context.Background(), "test fallback")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -588,7 +588,7 @@ func TestDelegateStep_DefaultModeFork(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool))
+	eng := mustNew(mock, WithTools(echoTool))
 	result, err := eng.Run(context.Background(), "test default mode")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -612,7 +612,7 @@ func TestDelegateDisabled_FallsThrough(t *testing.T) {
 		},
 	}
 
-	eng := New(mock, WithTools(echoTool), WithDelegateEnabled(false))
+	eng := mustNew(mock, WithTools(echoTool), WithDelegateEnabled(false))
 	result, err := eng.Run(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

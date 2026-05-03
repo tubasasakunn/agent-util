@@ -42,7 +42,11 @@ func main() {
 			engine.WithTokenLimit(envCfg.contextSize),
 			engine.WithLogWriter(os.Stderr),
 		}
-		eng := engine.New(client, rpcOpts...)
+		eng, err := engine.New(client, rpcOpts...)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "engine: %v\n", err)
+			os.Exit(1)
+		}
 		if err := runRPC(ctx, eng); err != nil {
 			fmt.Fprintf(os.Stderr, "rpc: %v\n", err)
 			os.Exit(1)
@@ -64,7 +68,11 @@ func main() {
 
 	// 引数ありならワンショットモード（UserApprover なし → ask は fail-closed で拒否）
 	if cfg.prompt != "" {
-		eng := engine.New(client, opts...)
+		eng, err := engine.New(client, opts...)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "engine: %v\n", err)
+			os.Exit(1)
+		}
 		result, err := eng.Run(ctx, cfg.prompt)
 		if err != nil {
 			handleRunError(err)
@@ -78,7 +86,11 @@ func main() {
 	// 重要: stdinの *bufio.Reader をREPLとApproverで共有する
 	stdinReader := bufio.NewReader(os.Stdin)
 	opts = append(opts, engine.WithUserApprover(NewStdinApprover(stdinReader, os.Stderr)))
-	eng := engine.New(client, opts...)
+	eng, err := engine.New(client, opts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "engine: %v\n", err)
+		os.Exit(1)
+	}
 	if err := runREPL(ctx, eng, stdinReader); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
