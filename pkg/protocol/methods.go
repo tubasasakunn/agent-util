@@ -326,10 +326,10 @@ type ContextStatusParams struct {
 
 // SessionMessage は会話履歴の1メッセージ。role/content のフラットな表現。
 type SessionMessage struct {
-	Role       string              `json:"role"`
-	Content    string              `json:"content"`
-	ToolCalls  []SessionToolCall   `json:"tool_calls,omitempty"`
-	ToolCallID string              `json:"tool_call_id,omitempty"`
+	Role       string            `json:"role"`
+	Content    string            `json:"content"`
+	ToolCalls  []SessionToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string            `json:"tool_call_id,omitempty"`
 }
 
 // SessionToolCall はアシスタントが発行したツール呼び出し。
