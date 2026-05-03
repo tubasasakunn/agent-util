@@ -61,6 +61,55 @@ pkg/tool/        — Tool interface、スキーマ定義
 
 `pkg/protocol/methods.go` が真実の源で、`docs/openrpc.json` は手書きで同期する。バージョニング方針は `.claude/rules/protocol.md` を参照。
 
+## SDK 設計哲学 — エージェントオブジェクトモデル (AOM)
+
+`sdk/python/ai_agent/easy.py` が体現している使用感を言語化したもの。
+JS SDK を拡張するときも、この設計哲学を基準にする。
+
+### 一言で言うと
+
+> **「エージェントを、会話状態を持つファーストクラスオブジェクトとして扱う」**
+
+Git のコミット・Unix のプロセス・OOP のオブジェクトと同じ発想で、
+エージェントを「生成・複製・合成・廃棄できる実体」として設計する。
+
+### 5 つの特徴
+
+| 特徴 | 具体的な表れ |
+|---|---|
+| **1. 状態カプセル化** | `input()` を呼ぶだけで会話が積まれる。スキル・MCP・サブエージェントの内部呼び出しはコンテキストに漏れない |
+| **2. コンポーザブル** | `fork()` `add()` `add_summary()` `branch()` でエージェント同士が会話文脈を受け渡せる |
+| **3. 設定の集約** | バイナリパス・環境変数・system_prompt を `AgentConfig` 1 つに束ねる。呼び出し側は設定オブジェクトを渡すだけ |
+| **4. バッテリー内蔵** | RAG 検索・要約・バッチ・チェックポイントが標準搭載。外部ライブラリ不要 |
+| **5. 段階的複雑性** | `agent.input(prompt)` だけで動く。必要になったら `fork()` や `batch()` を足せばいい |
+
+### 低レベル API との住み分け
+
+```
+低レベル (sdk/python/ai_agent/client.py)
+  └── JSON-RPC の生の呼び出しを扱う。プロトコルに忠実。
+      外部ラッパーや細かい制御が必要な実装者向け。
+
+高レベル (sdk/python/ai_agent/easy.py)
+  └── AOM を実装。エージェントをオブジェクトとして使う開発者向け。
+      内部では低レベル API を呼んでいる。
+```
+
+### 新機能を追加するときの判断軸
+
+- **エージェントの「状態」に関わるか？** → `session.*` RPC を経由して Go に持たせる
+- **複数エージェントの「合成」に関わるか？** → `easy.py` の `Agent` クラスに追加する
+- **LLM を「道具」として使う操作か？** → `context.summarize` のように専用 RPC にする
+- **SDK 側だけで完結するか？** → Go を触らず `easy.py` にメソッドを追加する
+
+### 実装済みの新 RPC（AOM を支える Go 側の土台）
+
+```
+session.history   — 会話履歴エクスポート  (fork/add/export の基盤)
+session.inject    — 会話履歴注入          (prepend / append / replace)
+context.summarize — LLM による会話要約    (context() / add_summary() の基盤)
+```
+
 ## 開発ルール
 
 - 各Phaseの実装完了後は `/investigate` でシナリオベースの統合検証を実施し、結果を記録すること
