@@ -31,7 +31,7 @@ func (v *RemoteVerifier) Name() string { return v.name }
 
 // Verify はラッパーへ verifier.execute を送り、応答を engine.VerifyResult に変換する。
 // fail-closed: エラー時は Passed=false を返す（error は呼び出し元で握りつぶさず nil で返す）。
-func (v *RemoteVerifier) Verify(ctx context.Context, toolName string, args []byte, result string) (*engine.VerifyResult, error) {
+func (v *RemoteVerifier) Verify(ctx context.Context, toolName string, args json.RawMessage, result string) (*engine.VerifyResult, error) {
 	if v.server == nil {
 		return failClosedVerify(v.name, "remote server unavailable"), nil
 	}
@@ -42,7 +42,7 @@ func (v *RemoteVerifier) Verify(ctx context.Context, toolName string, args []byt
 	params := protocol.VerifierExecuteParams{
 		Name:     v.name,
 		ToolName: toolName,
-		Args:     json.RawMessage(args),
+		Args:     args,
 		Result:   result,
 	}
 

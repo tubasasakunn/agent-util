@@ -20,9 +20,10 @@ type engineConfig struct {
 	delegateEnabled        bool
 	delegateMaxChars       int
 	workDir                string
-	coordinatorEnabled     bool
-	coordinateMaxChars     int
-	dynamicSections        []Section
+	coordinatorEnabled        bool
+	coordinateMaxChars        int
+	coordinatorMaxParallelism int
+	dynamicSections           []Section
 	reminderThreshold      int
 	memoryEntries          []MemoryEntry
 	toolScope              *ToolScope
@@ -143,6 +144,12 @@ func WithCoordinatorEnabled(enabled bool) Option {
 // デフォルトは 3000。各タスクの結果は coordinateMaxChars / タスク数 に制限される。
 func WithCoordinateMaxChars(n int) Option {
 	return func(c *engineConfig) { c.coordinateMaxChars = n }
+}
+
+// WithCoordinatorMaxParallelism は coordinate_tasks の最大並列実行数を設定する。
+// デフォルトは 10。0 以下を指定するとデフォルト値が使われる。
+func WithCoordinatorMaxParallelism(n int) Option {
+	return func(c *engineConfig) { c.coordinatorMaxParallelism = n }
 }
 
 // WithWorkDir はツール実行時のワーキングディレクトリを設定する。

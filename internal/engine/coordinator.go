@@ -78,14 +78,26 @@ func (e *Engine) coordinateStep(ctx context.Context, rr *routerResponse, routerU
 
 // runParallel は複数タスクを並列に実行する。
 // 各タスクは独立した子 Engine で実行される。
+// 同時実行数は coordinatorMaxParallelism で上限を設ける（デフォルト 10）。
 func (e *Engine) runParallel(ctx context.Context, tasks []coordinateTask) []coordinateResult {
 	results := make([]coordinateResult, len(tasks))
 	var wg sync.WaitGroup
+
+	concurrency := e.coordinatorMaxParallelism
+	if concurrency <= 0 {
+		concurrency = defaultCoordinatorMaxParallelism
+	}
+	if concurrency > len(tasks) {
+		concurrency = len(tasks)
+	}
+	sem := make(chan struct{}, concurrency)
 
 	for i, task := range tasks {
 		wg.Add(1)
 		go func(idx int, t coordinateTask) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
 			da := delegateArgs{Task: t.Task}
 			child := e.Fork(

@@ -1,6 +1,9 @@
 package engine
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Verifier はツール実行後の検証を実行するインターフェース。
 // ルールベース検証（テスト、リンター）と LLM-as-judge の両方を
@@ -10,9 +13,9 @@ type Verifier interface {
 	Name() string
 	// Verify はツール実行結果を検証する。
 	// toolName: 実行されたツール名
-	// args: ツールに渡された引数
+	// args: ツールに渡された引数（JSON）
 	// result: ツール実行結果の文字列
-	Verify(ctx context.Context, toolName string, args []byte, result string) (*VerifyResult, error)
+	Verify(ctx context.Context, toolName string, args json.RawMessage, result string) (*VerifyResult, error)
 }
 
 // VerifyResult は検証の結果。
@@ -51,7 +54,7 @@ func (vr *VerifierRegistry) All() []Verifier {
 // 1つでも失敗した場合、失敗した検証結果を集約して返す。
 // 検証器自体がエラーを返した場合はログして続行する（検証器の障害で本体を止めない）。
 // logf は検証器エラーのログ出力用コールバック。
-func (vr *VerifierRegistry) RunAll(ctx context.Context, toolName string, args []byte, result string, logf func(string, ...any)) *VerifyResult {
+func (vr *VerifierRegistry) RunAll(ctx context.Context, toolName string, args json.RawMessage, result string, logf func(string, ...any)) *VerifyResult {
 	if len(vr.verifiers) == 0 {
 		return &VerifyResult{Passed: true, Summary: "no verifiers"}
 	}

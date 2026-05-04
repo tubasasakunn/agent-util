@@ -15,7 +15,7 @@ type NonEmptyVerifier struct{}
 func (v *NonEmptyVerifier) Name() string { return "non_empty" }
 
 // Verify は結果が空文字や空白のみでないかを判定する。
-func (v *NonEmptyVerifier) Verify(ctx context.Context, toolName string, args []byte, result string) (*engine.VerifyResult, error) {
+func (v *NonEmptyVerifier) Verify(ctx context.Context, toolName string, args json.RawMessage, result string) (*engine.VerifyResult, error) {
 	if strings.TrimSpace(result) == "" {
 		return &engine.VerifyResult{
 			Passed:  false,
@@ -33,7 +33,7 @@ type JSONValidVerifier struct{}
 func (v *JSONValidVerifier) Name() string { return "json_valid" }
 
 // Verify は結果の JSON 構文を検証する。
-func (v *JSONValidVerifier) Verify(ctx context.Context, toolName string, args []byte, result string) (*engine.VerifyResult, error) {
+func (v *JSONValidVerifier) Verify(ctx context.Context, toolName string, args json.RawMessage, result string) (*engine.VerifyResult, error) {
 	trimmed := strings.TrimSpace(result)
 	if trimmed == "" {
 		return &engine.VerifyResult{Passed: true, Summary: "empty, skipped"}, nil

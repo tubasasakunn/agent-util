@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -16,7 +17,7 @@ type mockVerifier struct {
 
 func (v *mockVerifier) Name() string { return v.name }
 
-func (v *mockVerifier) Verify(_ context.Context, _ string, _ []byte, _ string) (*VerifyResult, error) {
+func (v *mockVerifier) Verify(_ context.Context, _ string, _ json.RawMessage, _ string) (*VerifyResult, error) {
 	if v.err != nil {
 		return nil, v.err
 	}

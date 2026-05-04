@@ -12,33 +12,37 @@ import (
 	"ai-agent/pkg/tool"
 )
 
+// defaultCoordinatorMaxParallelism は coordinate_tasks の並列実行上限のデフォルト値。
+const defaultCoordinatorMaxParallelism = 10
+
 // Engine はエージェントループを管理する。
 type Engine struct {
-	completer              llm.Completer
-	ctxManager             *agentctx.Manager
-	maxTurns               int
-	systemPrompt           string
-	registry               *Registry
-	logw                   io.Writer
-	compaction             *agentctx.CompactionConfig
-	delegateEnabled        bool
-	delegateMaxChars       int
-	workDir                string
-	coordinatorEnabled     bool
-	coordinateMaxChars     int
-	promptBuilder          *PromptBuilder
-	reminderThreshold      int
-	toolScope              *ToolScope
-	maxStepRetries         int
-	maxConsecutiveFailures int
-	verifiers              *VerifierRegistry
-	permChecker            *PermissionChecker // nil なら全許可（後方互換）
-	guards                 *GuardRegistry     // nil ならガードなし（後方互換）
-	stepCallback           StepCallback       // nil ならコールバックなし
-	streamingEnabled       bool
-	streamCallback         StreamCallback
-	contextStatusCallback  ContextStatusCallback
-	skillToolNames         map[string]struct{}
+	completer                    llm.Completer
+	ctxManager                   *agentctx.Manager
+	maxTurns                     int
+	systemPrompt                 string
+	registry                     *Registry
+	logw                         io.Writer
+	compaction                   *agentctx.CompactionConfig
+	delegateEnabled              bool
+	delegateMaxChars             int
+	workDir                      string
+	coordinatorEnabled           bool
+	coordinateMaxChars           int
+	coordinatorMaxParallelism    int
+	promptBuilder                *PromptBuilder
+	reminderThreshold            int
+	toolScope                    *ToolScope
+	maxStepRetries               int
+	maxConsecutiveFailures       int
+	verifiers                    *VerifierRegistry
+	permChecker                  *PermissionChecker // nil なら全許可（後方互換）
+	guards                       *GuardRegistry     // nil ならガードなし（後方互換）
+	stepCallback                 StepCallback       // nil ならコールバックなし
+	streamingEnabled             bool
+	streamCallback               StreamCallback
+	contextStatusCallback        ContextStatusCallback
+	skillToolNames               map[string]struct{}
 }
 
 // New は Engine を生成する。ツール名の重複など設定エラーは error で返す。
@@ -83,29 +87,30 @@ func New(completer llm.Completer, opts ...Option) (*Engine, error) {
 	}
 
 	eng := &Engine{
-		completer:              completer,
-		ctxManager:             ctxMgr,
-		maxTurns:               cfg.maxTurns,
-		systemPrompt:           cfg.systemPrompt,
-		registry:               reg,
-		logw:                   cfg.logWriter,
-		compaction:             cfg.compaction,
-		delegateEnabled:        cfg.delegateEnabled,
-		delegateMaxChars:       cfg.delegateMaxChars,
-		workDir:                cfg.workDir,
-		coordinatorEnabled:     cfg.coordinatorEnabled,
-		coordinateMaxChars:     cfg.coordinateMaxChars,
-		reminderThreshold:      cfg.reminderThreshold,
-		toolScope:              cfg.toolScope,
-		maxStepRetries:         cfg.maxStepRetries,
-		maxConsecutiveFailures: cfg.maxConsecutiveFailures,
-		verifiers:              NewVerifierRegistry(cfg.verifiers...),
-		permChecker:            permChecker,
-		guards:                 guards,
-		stepCallback:           cfg.stepCallback,
-		streamingEnabled:       cfg.streamingEnabled,
-		streamCallback:         cfg.streamCallback,
-		contextStatusCallback:  cfg.contextStatusCallback,
+		completer:                 completer,
+		ctxManager:                ctxMgr,
+		maxTurns:                  cfg.maxTurns,
+		systemPrompt:              cfg.systemPrompt,
+		registry:                  reg,
+		logw:                      cfg.logWriter,
+		compaction:                cfg.compaction,
+		delegateEnabled:           cfg.delegateEnabled,
+		delegateMaxChars:          cfg.delegateMaxChars,
+		workDir:                   cfg.workDir,
+		coordinatorEnabled:        cfg.coordinatorEnabled,
+		coordinateMaxChars:        cfg.coordinateMaxChars,
+		coordinatorMaxParallelism: cfg.coordinatorMaxParallelism,
+		reminderThreshold:         cfg.reminderThreshold,
+		toolScope:                 cfg.toolScope,
+		maxStepRetries:            cfg.maxStepRetries,
+		maxConsecutiveFailures:    cfg.maxConsecutiveFailures,
+		verifiers:                 NewVerifierRegistry(cfg.verifiers...),
+		permChecker:               permChecker,
+		guards:                    guards,
+		stepCallback:              cfg.stepCallback,
+		streamingEnabled:          cfg.streamingEnabled,
+		streamCallback:            cfg.streamCallback,
+		contextStatusCallback:     cfg.contextStatusCallback,
 	}
 
 	// Skills サポートの初期化。
@@ -159,75 +164,52 @@ func New(completer llm.Completer, opts ...Option) (*Engine, error) {
 // delegate_task / coordinate_tasks は無効化されネスト再帰を防止する。
 // PermissionPolicy / Guards / Verifiers は親から継承する。
 func (e *Engine) Fork(opts ...Option) *Engine {
-	// 親の設定をベースに子Engineの設定を構築
-	cfg := engineConfig{
-		maxTurns:               e.maxTurns,
-		systemPrompt:           e.systemPrompt,
-		tools:                  e.registry.Tools(),
-		logWriter:              e.logw,
-		tokenLimit:             e.ctxManager.TokenLimit(),
-		compaction:             e.compaction,
-		delegateEnabled:        false, // ネスト再帰防止
-		delegateMaxChars:       e.delegateMaxChars,
-		workDir:                e.workDir,
-		coordinatorEnabled:     false, // ネスト再帰防止
-		coordinateMaxChars:     e.coordinateMaxChars,
-		maxStepRetries:         e.maxStepRetries,
-		maxConsecutiveFailures: e.maxConsecutiveFailures,
+	// 親設定を再現し、ネスト再帰防止のため delegate/coordinator を無効化する
+	forkOpts := []Option{
+		WithMaxTurns(e.maxTurns),
+		WithSystemPrompt(e.systemPrompt),
+		WithTools(e.registry.Tools()...),
+		WithLogWriter(e.logw),
+		WithTokenLimit(e.ctxManager.TokenLimit()),
+		withOptionalCompaction(e.compaction),
+		WithDelegateEnabled(false), // ネスト再帰防止
+		WithDelegateMaxChars(e.delegateMaxChars),
+		WithWorkDir(e.workDir),
+		WithCoordinatorEnabled(false), // ネスト再帰防止
+		WithCoordinateMaxChars(e.coordinateMaxChars),
+		WithCoordinatorMaxParallelism(e.coordinatorMaxParallelism),
+		WithMaxStepRetries(e.maxStepRetries),
+		WithMaxConsecutiveFailures(e.maxConsecutiveFailures),
 	}
-	// パーミッションポリシーを継承（UserApproverはnil: 子はask→deny）
+
+	// パーミッションポリシーを継承（userApprover は意図的に省略: 子はask→deny）
 	if e.permChecker != nil {
 		policy := e.permChecker.Policy()
-		cfg.permissionPolicy = &policy
-		// userApprover は意図的に nil（子Engineは対話的確認不可、fail-closed）
+		forkOpts = append(forkOpts, WithPermissionPolicy(policy))
 	}
+
 	// ガードレールを継承
 	if e.guards != nil {
-		cfg.inputGuards = e.guards.InputGuards()
-		cfg.toolCallGuards = e.guards.ToolCallGuards()
-		cfg.outputGuards = e.guards.OutputGuards()
+		if guards := e.guards.InputGuards(); len(guards) > 0 {
+			forkOpts = append(forkOpts, WithInputGuards(guards...))
+		}
+		if guards := e.guards.ToolCallGuards(); len(guards) > 0 {
+			forkOpts = append(forkOpts, WithToolCallGuards(guards...))
+		}
+		if guards := e.guards.OutputGuards(); len(guards) > 0 {
+			forkOpts = append(forkOpts, WithOutputGuards(guards...))
+		}
 	}
+
 	// Verifiers を継承
 	if e.verifiers != nil {
-		cfg.verifiers = e.verifiers.All()
+		if vs := e.verifiers.All(); len(vs) > 0 {
+			forkOpts = append(forkOpts, WithVerifiers(vs...))
+		}
 	}
 
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-
-	forkOpts := []Option{
-		WithMaxTurns(cfg.maxTurns),
-		WithSystemPrompt(cfg.systemPrompt),
-		WithTools(cfg.tools...),
-		WithLogWriter(cfg.logWriter),
-		WithTokenLimit(cfg.tokenLimit),
-		WithDelegateEnabled(cfg.delegateEnabled),
-		WithDelegateMaxChars(cfg.delegateMaxChars),
-		WithWorkDir(cfg.workDir),
-		WithCoordinatorEnabled(cfg.coordinatorEnabled),
-		WithCoordinateMaxChars(cfg.coordinateMaxChars),
-		WithMaxStepRetries(cfg.maxStepRetries),
-		WithMaxConsecutiveFailures(cfg.maxConsecutiveFailures),
-		withOptionalCompaction(cfg.compaction),
-	}
-	if cfg.permissionPolicy != nil {
-		forkOpts = append(forkOpts, WithPermissionPolicy(*cfg.permissionPolicy))
-	}
-	if len(cfg.inputGuards) > 0 {
-		forkOpts = append(forkOpts, WithInputGuards(cfg.inputGuards...))
-	}
-	if len(cfg.toolCallGuards) > 0 {
-		forkOpts = append(forkOpts, WithToolCallGuards(cfg.toolCallGuards...))
-	}
-	if len(cfg.outputGuards) > 0 {
-		forkOpts = append(forkOpts, WithOutputGuards(cfg.outputGuards...))
-	}
-	if len(cfg.verifiers) > 0 {
-		forkOpts = append(forkOpts, WithVerifiers(cfg.verifiers...))
-	}
-
-	return mustNew(e.completer, forkOpts...)
+	// 外部 opts を末尾に追加してオーバーライドを適用
+	return mustNew(e.completer, append(forkOpts, opts...)...)
 }
 
 // mustNew は Fork/SessionRunner 等の内部用途でのみ使用する New のラッパー。
@@ -501,12 +483,6 @@ func isFailureReason(reason string) bool {
 	default:
 		return false
 	}
-}
-
-// step は1ターンのモデル呼び出しを実行し、LoopResult を返す。
-// ツールが登録されている場合はルーターステップを経由する。
-func (e *Engine) step(ctx context.Context) (*LoopResult, error) {
-	return e.stepWithTurn(ctx, 0)
 }
 
 // stepWithTurn は turn 番号を引き回して1ステップを実行する。
