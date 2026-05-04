@@ -86,6 +86,12 @@ func (m *Manager) TokenLimit() int {
 func (m *Manager) UsageRatio() float64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.usageRatioLocked()
+}
+
+// usageRatioLocked は現在のコンテキスト使用率を返す。
+// mu.Lock() を取得した状態で呼び出すこと。
+func (m *Manager) usageRatioLocked() float64 {
 	if m.tokenLimit == 0 {
 		return 0
 	}
@@ -120,8 +126,7 @@ func (m *Manager) Compact(ctx context.Context, cfg CompactionConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	ratio := float64(m.reservedTokens+m.tokenCount) / float64(m.tokenLimit)
-	if ratio < m.threshold {
+	if m.usageRatioLocked() < m.threshold {
 		return nil
 	}
 
@@ -168,18 +173,12 @@ func (m *Manager) Inject(msgs []llm.Message, position string) {
 
 	switch position {
 	case "prepend":
-		m.entries = append(newEntries, m.entries...)
+		m.replaceEntries(append(newEntries, m.entries...))
 	case "replace":
-		m.entries = newEntries
+		m.replaceEntries(newEntries)
 	default: // "append"
-		m.entries = append(m.entries, newEntries...)
+		m.replaceEntries(append(m.entries, newEntries...))
 	}
-
-	m.tokenCount = 0
-	for _, e := range m.entries {
-		m.tokenCount += e.Tokens
-	}
-	m.checkThreshold()
 }
 
 // checkThreshold は使用率を確認し、閾値を超過/回復した場合にイベントを発火する。
@@ -189,7 +188,7 @@ func (m *Manager) checkThreshold() {
 		return
 	}
 
-	ratio := float64(m.reservedTokens+m.tokenCount) / float64(m.tokenLimit)
+	ratio := m.usageRatioLocked()
 	nowExceeded := ratio >= m.threshold
 
 	if nowExceeded && !m.exceeded {

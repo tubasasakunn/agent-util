@@ -295,9 +295,7 @@ func (h *Handlers) handleVerifierRegister(_ context.Context, params json.RawMess
 
 // handleSessionHistory は現在の会話履歴を返す。
 func (h *Handlers) handleSessionHistory(_ context.Context, _ json.RawMessage) (any, *protocol.RPCError) {
-	h.engMu.Lock()
-	msgs := h.eng.History()
-	h.engMu.Unlock()
+	msgs := h.Engine().History()
 
 	sessionMsgs := make([]protocol.SessionMessage, 0, len(msgs))
 	for _, msg := range msgs {

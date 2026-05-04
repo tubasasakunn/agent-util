@@ -209,7 +209,17 @@ func (e *Engine) Fork(opts ...Option) *Engine {
 	}
 
 	// 外部 opts を末尾に追加してオーバーライドを適用
-	return mustNew(e.completer, append(forkOpts, opts...)...)
+	child := mustNew(e.completer, append(forkOpts, opts...)...)
+
+	// スキルツール名を継承（toolAlreadySucceeded が子でも正しく動作するため）
+	if len(e.skillToolNames) > 0 {
+		child.skillToolNames = make(map[string]struct{}, len(e.skillToolNames))
+		for k := range e.skillToolNames {
+			child.skillToolNames[k] = struct{}{}
+		}
+	}
+
+	return child
 }
 
 // mustNew は Fork/SessionRunner 等の内部用途でのみ使用する New のラッパー。

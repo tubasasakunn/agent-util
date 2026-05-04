@@ -37,6 +37,7 @@ _M_GUARD_REGISTER = "guard.register"
 _M_GUARD_EXECUTE = "guard.execute"
 _M_VERIFIER_REGISTER = "verifier.register"
 _M_VERIFIER_EXECUTE = "verifier.execute"
+_M_CONTEXT_SUMMARIZE = "context.summarize"
 _N_STREAM_DELTA = "stream.delta"
 _N_STREAM_END = "stream.end"
 _N_CONTEXT_STATUS = "context.status"
@@ -211,7 +212,26 @@ class Agent:
         raw = await self._rpc.call(_M_AGENT_ABORT, params)
         return bool(raw.get("aborted", False))
 
+    async def summarize(self) -> str:
+        """現在の会話履歴を LLM で要約して返す。"""
+        raw = await self._rpc.call(_M_CONTEXT_SUMMARIZE, {})
+        return str(raw.get("summary", ""))
+
     # -- registration ----------------------------------------------------
+
+    async def _register_definitions(
+        self,
+        defs: list[Any],
+        store: dict[str, Any],
+        rpc_method: str,
+        rpc_list_key: str,
+    ) -> int:
+        """共通登録ヘルパー。defs を store に格納してコアへ RPC 送信する。"""
+        for defn in defs:
+            store[defn.name] = defn
+        params = {rpc_list_key: [d.to_protocol_dict() for d in defs]}
+        raw = await self._rpc.call(rpc_method, params)
+        return int(raw.get("registered", 0))
 
     async def register_tools(self, *tools: Any) -> int:
         """Register ``@tool``-decorated callables with the core.
@@ -233,12 +253,7 @@ class Agent:
                     )
             defs.append(defn)
 
-        for defn in defs:
-            self._tools[defn.name] = defn
-
-        params = {"tools": [d.to_protocol_dict() for d in defs]}
-        raw = await self._rpc.call(_M_TOOL_REGISTER, params)
-        return int(raw.get("registered", 0))
+        return await self._register_definitions(defs, self._tools, _M_TOOL_REGISTER, "tools")
 
     async def register_guards(self, *guards: Any) -> int:
         """Register guard callables decorated with ``@input_guard`` etc."""
@@ -255,12 +270,7 @@ class Agent:
                     )
             defs.append(defn)
 
-        for defn in defs:
-            self._guards[defn.name] = defn
-
-        params = {"guards": [d.to_protocol_dict() for d in defs]}
-        raw = await self._rpc.call(_M_GUARD_REGISTER, params)
-        return int(raw.get("registered", 0))
+        return await self._register_definitions(defs, self._guards, _M_GUARD_REGISTER, "guards")
 
     async def register_verifiers(self, *verifiers: Any) -> int:
         """Register verifier callables decorated with ``@verifier``."""
@@ -277,12 +287,9 @@ class Agent:
                     )
             defs.append(defn)
 
-        for defn in defs:
-            self._verifiers[defn.name] = defn
-
-        params = {"verifiers": [d.to_protocol_dict() for d in defs]}
-        raw = await self._rpc.call(_M_VERIFIER_REGISTER, params)
-        return int(raw.get("registered", 0))
+        return await self._register_definitions(
+            defs, self._verifiers, _M_VERIFIER_REGISTER, "verifiers"
+        )
 
     async def register_mcp(
         self,

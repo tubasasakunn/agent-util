@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
-from ai_agent.client import Agent as _CoreAgent
+from ai_agent.client import Agent as _CoreAgent, AgentResult as _AgentResult
 from ai_agent.config import (
     AgentConfig as _CoreConfig,
     CompactionConfig,
@@ -64,7 +64,6 @@ logger = logging.getLogger("ai_agent.easy")
 # ------------------------------------------------------------------ #
 _M_SESSION_HISTORY = "session.history"
 _M_SESSION_INJECT = "session.inject"
-_M_CONTEXT_SUMMARIZE = "context.summarize"
 
 
 # ------------------------------------------------------------------ #
@@ -483,8 +482,7 @@ class Agent:
         """現在の会話履歴を LLM で要約して返す。"""
         core = await self._ensure_started()
         logger.info("[Agent:%s] context.summarize 呼び出し", self._name)
-        raw = await core._rpc.call(_M_CONTEXT_SUMMARIZE, {})
-        summary: str = raw.get("summary", "")
+        summary = await core.summarize()
         logger.info("[Agent:%s] summary: %s…", self._name, summary[:80])
         return summary
 
@@ -639,21 +637,19 @@ class Agent:
         def _on_delta(text: str, turn: int) -> None:
             queue.put_nowait(text)
 
-        run_task = asyncio.create_task(
-            core.run(prompt, stream=_on_delta)
-        )
+        async def _run() -> _AgentResult:
+            try:
+                return await core.run(prompt, stream=_on_delta)
+            finally:
+                queue.put_nowait(None)  # sentinel でループを終了させる
 
+        run_task = asyncio.create_task(_run())
         try:
             while True:
-                try:
-                    chunk = queue.get_nowait()
-                    if chunk is None:
-                        break
-                    yield chunk
-                except asyncio.QueueEmpty:
-                    if run_task.done():
-                        break
-                    await asyncio.sleep(0.01)
+                chunk = await queue.get()
+                if chunk is None:
+                    break
+                yield chunk
         finally:
             result = await run_task
             self._index.add("user", prompt)

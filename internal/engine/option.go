@@ -69,16 +69,17 @@ const defaultReminderThreshold = 8
 
 func defaultEngineConfig() engineConfig {
 	return engineConfig{
-		maxTurns:               10,
-		systemPrompt:           defaultSystemPrompt,
-		tokenLimit:             8192,
-		delegateEnabled:        true,
-		delegateMaxChars:       1500,
-		coordinatorEnabled:     true,
-		coordinateMaxChars:     3000,
-		reminderThreshold:      defaultReminderThreshold,
-		maxStepRetries:         2,
-		maxConsecutiveFailures: 3,
+		maxTurns:                  10,
+		systemPrompt:              defaultSystemPrompt,
+		tokenLimit:                8192,
+		delegateEnabled:           true,
+		delegateMaxChars:          1500,
+		coordinatorEnabled:        true,
+		coordinateMaxChars:        3000,
+		coordinatorMaxParallelism: defaultCoordinatorMaxParallelism,
+		reminderThreshold:         defaultReminderThreshold,
+		maxStepRetries:            2,
+		maxConsecutiveFailures:    3,
 	}
 }
 
