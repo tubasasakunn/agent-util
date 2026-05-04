@@ -1,767 +1,575 @@
-/**
- * Browser demo for @ai-agent/browser.
- *
- * Loads a WebLLM model in the page, registers a useful preset toolkit
- * (echo, calculator, fetch_url, fetch_markdown, extract_html,
- * search_wikipedia, get_current_time), wires the agent to a chat UI and
- * a side panel that shows router decisions, guard verdicts, tool calls,
- * and verifier outcomes in real time.
- */
+import './style.css';
 
-import { Agent, tool, type LoopEvent } from '@ai-agent/browser';
-import { WebLLMCompleter } from '@ai-agent/browser/llm';
-// @ts-ignore — turndown ships its own types but vite resolves them at build time
-import TurndownService from 'turndown';
+// ─────────────────────────────────────────────────────────
+// 型定義
+// ─────────────────────────────────────────────────────────
 
-// 公開 CORS proxy。デモ用、信頼性に注意。直接 fetch して CORS で失敗したら proxy 経由で再試行する。
-const CORS_PROXY = 'https://corsproxy.io/?url=';
-
-// WebLLM の prebuilt 一覧に未収録のモデル（Gemma 4 E2B など）を appConfig 経由で読み込むための設定。
-// HuggingFace コミュニティが MLC 形式で公開しているリポジトリを指す。
-const CUSTOM_APP_CONFIGS: Record<string, Record<string, unknown>> = {
-  'gemma-4-E2B-it-q4f16_1-MLC': {
-    model_list: [
-      {
-        model: 'https://huggingface.co/welcoma/gemma-4-E2B-it-q4f16_1-MLC',
-        model_id: 'gemma-4-E2B-it-q4f16_1-MLC',
-        model_lib:
-          'https://huggingface.co/welcoma/gemma-4-E2B-it-q4f16_1-MLC/resolve/main/libs/gemma-4-E2B-it-q4f16_1-MLC-webgpu.wasm',
-        required_features: ['shader-f16'],
-        // Gemma 4 は sliding window attention を使う。WebLLM は context_window_size と
-        // sliding_window_size の両方を正にできないので context_window_size を -1 に上書きする。
-        overrides: {
-          // sliding window を無効化し full attention のみに（Gemma 4 E2B のハイブリッド層を簡略）。
-          // welcoma の mlc-chat-config.json は両方正で出荷されており WebLLM 0.2.82 では reject される。
-          // context_window_size を 4096 のままで sliding を無効化することでロード可能になる。
-          sliding_window_size: -1,
-        },
-      },
-    ],
-  },
-};
-
-async function fetchTextWithCorsFallback(url: string, maxBytes = 8192): Promise<string> {
-  const tryFetch = async (target: string): Promise<string> => {
-    const res = await fetch(target, { redirect: 'follow' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    return text.length > maxBytes ? text.slice(0, maxBytes) + '\n... [truncated]' : text;
-  };
-  try {
-    return await tryFetch(url);
-  } catch (e) {
-    return await tryFetch(CORS_PROXY + encodeURIComponent(url));
-  }
+interface AgentConfig {
+  endpoint:     string;
+  apiKey:       string;
+  model:        string;
+  binaryPath:   string;
+  systemPrompt: string;
+  maxTurns:     number;
 }
 
-const $ = <T extends HTMLElement>(sel: string): T => {
+interface AgentInfo {
+  id:     string;
+  name:   string;
+  config: AgentConfig;
+  tools:  string[];
+  busy:   boolean;
+}
+
+interface ChatMessage {
+  role:    'user' | 'assistant' | 'system' | 'error';
+  content: string;
+  meta?:   string;
+}
+
+// WebSocket メッセージ型
+type ServerMsg =
+  | { type: 'init';          agents: AgentInfo[] }
+  | { type: 'agent.created'; id: string; name: string; config: AgentConfig; tools: string[] }
+  | { type: 'agent.deleted'; id: string }
+  | { type: 'run.start';     agentId: string; runId: string }
+  | { type: 'stream.delta';  agentId: string; runId: string; text: string; turn: number }
+  | { type: 'run.done';      agentId: string; runId: string; result: { response: string; reason: string; turns: number } }
+  | { type: 'run.error';     agentId: string; runId: string; message: string }
+  | { type: 'agent.aborted'; id: string }
+  | { type: 'mcp.registered'; agentId: string; tools: string[]; allTools: string[] }
+  | { type: 'error';         message: string };
+
+// ─────────────────────────────────────────────────────────
+// アプリ状態
+// ─────────────────────────────────────────────────────────
+
+const state = {
+  agents:      new Map<string, AgentInfo>(),
+  activeId:    null as string | null,
+  histories:   new Map<string, ChatMessage[]>(),
+  streaming:   new Map<string, { runId: string; el: HTMLElement }>(),
+  ws:          null as WebSocket | null,
+  reconnectTimer: null as ReturnType<typeof setTimeout> | null,
+};
+
+// ─────────────────────────────────────────────────────────
+// DOM ヘルパー
+// ─────────────────────────────────────────────────────────
+
+function $<T extends Element>(sel: string): T {
   const el = document.querySelector<T>(sel);
-  if (!el) throw new Error(`missing element: ${sel}`);
+  if (!el) throw new Error(`element not found: ${sel}`);
   return el;
-};
+}
 
-// --- DOM handles ----------------------------------------------------------
+function $$(sel: string): NodeListOf<Element> {
+  return document.querySelectorAll(sel);
+}
 
-const modelSelect = $<HTMLSelectElement>('#model-select');
-const loadBtn = $<HTMLButtonElement>('#load-btn');
-const deepResearchToggle = $<HTMLInputElement>('#deep-research-toggle');
-const statusEl = $<HTMLDivElement>('#status');
-const progress = $<HTMLProgressElement>('#progress');
-const chat = $<HTMLDivElement>('#chat');
-const inputForm = $<HTMLFormElement>('#input-form');
-const promptEl = $<HTMLTextAreaElement>('#prompt');
-const sendBtn = $<HTMLButtonElement>('#send-btn');
-const toolList = $<HTMLUListElement>('#tool-list');
-const guardList = $<HTMLUListElement>('#guard-list');
-const trace = $<HTMLOListElement>('#trace');
+// ─────────────────────────────────────────────────────────
+// WebSocket 接続
+// ─────────────────────────────────────────────────────────
 
-// --- Tools ----------------------------------------------------------------
+function connectWS() {
+  const wsUrl = `ws://${location.host}/ws`;
+  setConnStatus('connecting');
 
-const echoTool = tool<{ message: string }>({
-  name: 'echo',
-  description: 'Repeat the input message back, prefixed with "echo:".',
-  parameters: {
-    type: 'object',
-    properties: { message: { type: 'string', description: 'Text to echo' } },
-    required: ['message'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: ({ message }) => `echo: ${String(message ?? '')}`,
-});
+  const ws = new WebSocket(wsUrl);
+  state.ws = ws;
 
-const calcTool = tool<{ expression: string }>({
-  name: 'calculator',
-  description:
-    'Evaluate a basic arithmetic expression involving + - * / and parentheses.',
-  parameters: {
-    type: 'object',
-    properties: {
-      expression: { type: 'string', description: 'e.g. "(3 + 4) * 5"' },
-    },
-    required: ['expression'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: ({ expression }) => {
-    const expr = String(expression ?? '');
-    if (!/^[\d\s+\-*/().]+$/.test(expr)) {
-      return { content: 'Error: only digits and + - * / ( ) are allowed.', is_error: true };
+  ws.onopen = () => {
+    setConnStatus('connected');
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
     }
+  };
+
+  ws.onclose = () => {
+    setConnStatus('disconnected');
+    state.ws = null;
+    state.reconnectTimer = setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+
+  ws.onmessage = (ev) => {
+    let msg: ServerMsg;
     try {
-      // Restricted parser: regex above guarantees no identifiers.
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-      const fn = new Function(`return (${expr});`);
-      const value = fn();
-      return String(value);
-    } catch (err) {
-      return { content: `Error: ${(err as Error).message}`, is_error: true };
+      msg = JSON.parse(ev.data as string) as ServerMsg;
+    } catch {
+      return;
     }
-  },
-});
+    handleServerMessage(msg);
+  };
+}
 
-const fetchTool = tool<{ url: string }>({
-  name: 'fetch_url',
-  description:
-    'Fetch a URL and return raw text/HTML (up to 8KB). Auto-falls back to CORS proxy if direct fetch is blocked.',
-  parameters: {
-    type: 'object',
-    properties: { url: { type: 'string', description: 'Absolute URL to fetch' } },
-    required: ['url'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ url }) => {
-    try {
-      return await fetchTextWithCorsFallback(String(url), 8192);
-    } catch (err) {
-      return { content: `fetch failed: ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
+function send(msg: object) {
+  if (state.ws?.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify(msg));
+  }
+}
 
-const turndown = new TurndownService({ headingStyle: 'atx' });
+// ─────────────────────────────────────────────────────────
+// サーバーメッセージ処理
+// ─────────────────────────────────────────────────────────
 
-const fetchMarkdownTool = tool<{ url: string }>({
-  name: 'fetch_markdown',
-  description:
-    'Fetch a URL, convert its HTML to Markdown, and return up to 8KB. Best for reading articles/blog posts; strips scripts and styles.',
-  parameters: {
-    type: 'object',
-    properties: { url: { type: 'string' } },
-    required: ['url'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ url }) => {
-    try {
-      const html = await fetchTextWithCorsFallback(String(url), 64 * 1024);
-      // <script> と <style> をざっくり除去してから markdown 化
-      const cleaned = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '');
-      const md = (turndown.turndown(cleaned) as string).trim();
-      return md.length > 8192 ? md.slice(0, 8192) + '\n... [truncated]' : md;
-    } catch (err) {
-      return { content: `convert failed: ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
+function handleServerMessage(msg: ServerMsg) {
+  switch (msg.type) {
+    case 'init':
+      for (const a of msg.agents) {
+        state.agents.set(a.id, a);
+        if (!state.histories.has(a.id)) state.histories.set(a.id, []);
+      }
+      renderAgentList();
+      break;
 
-const extractHtmlTool = tool<{ url: string; selector: string; limit?: number }>({
-  name: 'extract_html',
-  description:
-    'Fetch a URL and extract elements matching a CSS selector. Returns text content of up to N elements (default 10). Useful for scraping titles, links, list items.',
-  parameters: {
-    type: 'object',
-    properties: {
-      url: { type: 'string' },
-      selector: { type: 'string', description: 'CSS selector, e.g. "h2", "a.title", "article h3"' },
-      limit: { type: 'number', description: 'Max elements (default 10)' },
-    },
-    required: ['url', 'selector'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ url, selector, limit }) => {
-    try {
-      const html = await fetchTextWithCorsFallback(String(url), 256 * 1024);
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const els = Array.from(doc.querySelectorAll(String(selector)));
-      const max = typeof limit === 'number' && limit > 0 ? limit : 10;
-      const picked = els.slice(0, max).map((el, i) => {
-        const t = (el.textContent || '').trim().replace(/\s+/g, ' ');
-        const href = el.getAttribute('href') || el.querySelector('a')?.getAttribute('href') || '';
-        return `${i + 1}. ${t}${href ? ` [${href}]` : ''}`;
+    case 'agent.created':
+      state.agents.set(msg.id, {
+        id: msg.id, name: msg.name,
+        config: msg.config, tools: msg.tools, busy: false,
       });
-      if (picked.length === 0) return `No elements matched "${selector}".`;
-      return `Matched ${els.length} (showing ${picked.length}):\n` + picked.join('\n');
-    } catch (err) {
-      return { content: `extract failed: ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
+      state.histories.set(msg.id, []);
+      renderAgentList();
+      selectAgent(msg.id);
+      break;
 
-const searchWikipediaTool = tool<{ query: string; lang?: string }>({
-  name: 'search_wikipedia',
-  description:
-    'Search Wikipedia and return summaries of the top 3 results. Specify lang ("en" default, "ja" for Japanese).',
-  parameters: {
-    type: 'object',
-    properties: {
-      query: { type: 'string' },
-      lang: { type: 'string', description: '"en" or "ja" (default "en")' },
-    },
-    required: ['query'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ query, lang }) => {
-    if (!query || typeof query !== 'string' || !query.trim()) {
-      return {
-        content: 'search_wikipedia: required argument "query" is missing or empty. Provide a search term.',
-        is_error: true,
-      };
+    case 'agent.deleted':
+      state.agents.delete(msg.id);
+      state.histories.delete(msg.id);
+      state.streaming.delete(msg.id);
+      if (state.activeId === msg.id) {
+        state.activeId = null;
+        showWelcome();
+      }
+      renderAgentList();
+      break;
+
+    case 'run.start': {
+      const agent = state.agents.get(msg.agentId);
+      if (agent) agent.busy = true;
+      if (state.activeId === msg.agentId) updateBusyUI(true);
+      renderAgentList();
+      break;
     }
-    const language = (lang as string) || 'en';
-    try {
-      const searchUrl = `https://${language}.wikipedia.org/w/api.php?action=opensearch&format=json&origin=*&limit=3&search=${encodeURIComponent(String(query))}`;
-      const sr = await fetch(searchUrl);
-      const data = (await sr.json()) as [string, string[], string[], string[]];
-      const titles = data[1] || [];
-      const summaries: string[] = [];
-      for (const title of titles) {
-        const sumUrl = `https://${language}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-        try {
-          const sm = await fetch(sumUrl);
-          const j = await sm.json();
-          summaries.push(`### ${j.title}\n${j.extract || '(no extract)'}`);
-        } catch {
-          summaries.push(`### ${title}\n(summary fetch failed)`);
+
+    case 'stream.delta': {
+      if (state.activeId !== msg.agentId) break;
+      const streaming = state.streaming.get(msg.agentId);
+      if (streaming && streaming.runId === msg.runId) {
+        streaming.el.textContent += msg.text;
+        scrollChatToBottom();
+      } else {
+        // 新しいストリーミングメッセージ開始
+        const el = appendChatBubble(msg.agentId, 'assistant', '');
+        el.classList.add('streaming-cursor');
+        state.streaming.set(msg.agentId, { runId: msg.runId, el });
+      }
+      break;
+    }
+
+    case 'run.done': {
+      const agent = state.agents.get(msg.agentId);
+      if (agent) agent.busy = false;
+
+      // ストリーミング中だった場合、カーソルを外してメッセージ確定
+      const streaming = state.streaming.get(msg.agentId);
+      if (streaming) {
+        streaming.el.classList.remove('streaming-cursor');
+        // ストリーミングで出力済みの場合は content が空でないはず
+        if (!streaming.el.textContent) {
+          streaming.el.textContent = msg.result.response;
         }
+        // meta 情報追加
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = `turns: ${msg.result.turns} · reason: ${msg.result.reason}`;
+        streaming.el.parentElement!.appendChild(meta);
+        state.streaming.delete(msg.agentId);
+      } else if (state.activeId === msg.agentId) {
+        // ストリーミングなしで完了
+        const hist = state.histories.get(msg.agentId) ?? [];
+        hist.push({ role: 'assistant', content: msg.result.response, meta: `turns: ${msg.result.turns}` });
+        state.histories.set(msg.agentId, hist);
+        if (state.activeId === msg.agentId) rerenderChatLog();
       }
-      return summaries.length > 0 ? summaries.join('\n\n') : 'No results.';
-    } catch (err) {
-      return { content: `search failed: ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
 
-const fetchJsonTool = tool<{ url: string; path?: string }>({
-  name: 'fetch_json',
-  description:
-    'Fetch a JSON API endpoint and return parsed JSON. Many SPAs (Reddit, Hacker News, GitHub) expose JSON endpoints — use these instead of scraping HTML. Optional `path` extracts a sub-tree by dot-path (e.g. "data.children.0.data.title").',
-  parameters: {
-    type: 'object',
-    properties: {
-      url: { type: 'string', description: 'Absolute URL of a JSON endpoint' },
-      path: { type: 'string', description: 'Dot-separated path into the JSON tree' },
-    },
-    required: ['url'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ url, path }) => {
-    try {
-      const txt = await fetchTextWithCorsFallback(String(url), 256 * 1024);
-      const data = JSON.parse(txt) as unknown;
-      let picked: unknown = data;
-      if (typeof path === 'string' && path.length > 0) {
-        for (const key of String(path).split('.')) {
-          if (picked == null) break;
-          const idx = /^\d+$/.test(key) ? Number(key) : key;
-          picked = (picked as Record<string | number, unknown>)[idx as never];
-        }
+      if (state.activeId === msg.agentId) updateBusyUI(false);
+      renderAgentList();
+      break;
+    }
+
+    case 'run.error': {
+      const agent = state.agents.get(msg.agentId);
+      if (agent) agent.busy = false;
+      state.streaming.delete(msg.agentId);
+
+      const hist = state.histories.get(msg.agentId) ?? [];
+      hist.push({ role: 'error', content: `エラー: ${msg.message}` });
+      state.histories.set(msg.agentId, hist);
+
+      if (state.activeId === msg.agentId) {
+        rerenderChatLog();
+        updateBusyUI(false);
       }
-      // path で undefined に到達した場合は明示的にエラーを返す（JSON.stringify(undefined) = undefined のため）
-      if (picked === undefined) {
-        return {
-          content: `fetch_json: path "${path ?? ''}" did not resolve to a value`,
-          is_error: true,
-        };
+      renderAgentList();
+      break;
+    }
+
+    case 'mcp.registered': {
+      const agent = state.agents.get(msg.agentId);
+      if (agent) agent.tools = msg.allTools;
+      if (state.activeId === msg.agentId) renderToolsList(msg.agentId);
+      // システムメッセージ追加
+      const hist = state.histories.get(msg.agentId) ?? [];
+      hist.push({ role: 'system', content: `MCP 登録完了: ${msg.tools.join(', ')}` });
+      state.histories.set(msg.agentId, hist);
+      if (state.activeId === msg.agentId) rerenderChatLog();
+      break;
+    }
+
+    case 'error':
+      console.error('[ws error]', msg.message);
+      if (state.activeId) {
+        const hist = state.histories.get(state.activeId) ?? [];
+        hist.push({ role: 'error', content: msg.message });
+        state.histories.set(state.activeId, hist);
+        rerenderChatLog();
       }
-      const out = JSON.stringify(picked, null, 2);
-      return out.length > 8192 ? out.slice(0, 8192) + '\n... [truncated]' : out;
-    } catch (err) {
-      return { content: `fetch_json failed: ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
-
-const hnTopStoriesTool = tool<{ count?: number }>({
-  name: 'hn_top_stories',
-  description:
-    'Fetch the current top N Hacker News stories (default 5, max 10) with title, URL, score, and comment count. No URL parameter needed — call this for "current tech news" / "trending HN" / "what is popular on Hacker News" questions.',
-  parameters: {
-    type: 'object',
-    properties: { count: { type: 'number', description: 'How many stories (1-10)' } },
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ count }) => {
-    const n = typeof count === 'number' ? Math.min(Math.max(count, 1), 10) : 5;
-    try {
-      const idsRes = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
-      const ids = (await idsRes.json()) as number[];
-      const top = ids.slice(0, n);
-      const items = await Promise.all(
-        top.map(async (id) => {
-          const r = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
-          return (await r.json()) as Record<string, unknown>;
-        }),
-      );
-      return items
-        .map((it, i) => {
-          const title = String(it.title ?? '(no title)');
-          const url = it.url ? `\n   ${it.url}` : '';
-          const score = it.score ?? '?';
-          const comments = it.descendants ?? 0;
-          return `${i + 1}. ${title}${url}\n   (${score} points, ${comments} comments)`;
-        })
-        .join('\n');
-    } catch (err) {
-      return { content: `hn_top_stories failed: ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
-
-const fetchRssTool = tool<{ url: string; limit?: number }>({
-  name: 'fetch_rss',
-  description:
-    'Fetch and parse an RSS or Atom feed. Returns the title, link, and summary of up to N items (default 10). Useful for blogs and news sites that expose feeds.',
-  parameters: {
-    type: 'object',
-    properties: {
-      url: { type: 'string', description: 'Absolute URL of an RSS/Atom feed' },
-      limit: { type: 'number', description: 'Max items to return (default 10)' },
-    },
-    required: ['url'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ url, limit }) => {
-    try {
-      const xml = await fetchTextWithCorsFallback(String(url), 256 * 1024);
-      const doc = new DOMParser().parseFromString(xml, 'application/xml');
-      // RSS 2.0 と Atom の両方に対応
-      const items = Array.from(doc.querySelectorAll('item, entry'));
-      const max = typeof limit === 'number' && limit > 0 ? limit : 10;
-      const out = items.slice(0, max).map((it, i) => {
-        const title = it.querySelector('title')?.textContent?.trim() || '(no title)';
-        const link =
-          it.querySelector('link')?.textContent?.trim() ||
-          it.querySelector('link')?.getAttribute('href') ||
-          '';
-        const desc =
-          it.querySelector('description, summary, content')?.textContent?.trim().slice(0, 200) ||
-          '';
-        return `${i + 1}. ${title}\n   ${link}\n   ${desc}`;
-      });
-      if (out.length === 0) return 'No items found in feed.';
-      return `Feed has ${items.length} items (showing ${out.length}):\n\n` + out.join('\n\n');
-    } catch (err) {
-      return { content: `fetch_rss failed: ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
-
-const renderInIframeTool = tool<{ url: string; selector?: string; waitMs?: number }>({
-  name: 'render_in_iframe',
-  description:
-    'Load a URL in a hidden iframe, wait for JS to render, then extract DOM. Works only for sites that allow iframe embedding (no X-Frame-Options: DENY). Use this for SPAs that need JS to populate content. `selector` defaults to "body", `waitMs` defaults to 3000.',
-  parameters: {
-    type: 'object',
-    properties: {
-      url: { type: 'string' },
-      selector: { type: 'string', description: 'CSS selector to extract (default "body")' },
-      waitMs: { type: 'number', description: 'ms to wait for JS rendering (default 3000)' },
-    },
-    required: ['url'],
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: async ({ url, selector, waitMs }) => {
-    return new Promise<string | { content: string; is_error: true }>((resolve) => {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.sandbox.add('allow-scripts', 'allow-same-origin');
-      const cleanup = () => {
-        try { document.body.removeChild(iframe); } catch { /* ignore */ }
-      };
-      const wait = typeof waitMs === 'number' ? waitMs : 3000;
-      const timeoutId = setTimeout(() => {
-        cleanup();
-        resolve({ content: 'iframe load/render timed out (15s)', is_error: true });
-      }, 15000);
-
-      iframe.onload = () => {
-        setTimeout(() => {
-          clearTimeout(timeoutId);
-          try {
-            const doc = iframe.contentDocument;
-            if (!doc) {
-              cleanup();
-              resolve({ content: 'iframe has no contentDocument (X-Frame-Options blocked)', is_error: true });
-              return;
-            }
-            const sel = (selector as string) || 'body';
-            const el = doc.querySelector(sel);
-            const text = (el?.textContent || '').replace(/\s+/g, ' ').trim();
-            const out = text.length > 8192 ? text.slice(0, 8192) + '\n... [truncated]' : text;
-            cleanup();
-            resolve(out || `(empty match for "${sel}")`);
-          } catch (err) {
-            cleanup();
-            resolve({ content: `iframe access denied: ${(err as Error).message}`, is_error: true });
-          }
-        }, wait);
-      };
-      iframe.onerror = () => {
-        clearTimeout(timeoutId);
-        cleanup();
-        resolve({ content: 'iframe failed to load', is_error: true });
-      };
-      iframe.src = String(url);
-      document.body.appendChild(iframe);
-    });
-  },
-});
-
-const currentTimeTool = tool<{ timezone?: string }>({
-  name: 'get_current_time',
-  description: 'Return the current date/time in ISO format and a human-readable form. Optionally specify an IANA timezone (e.g. "Asia/Tokyo").',
-  parameters: {
-    type: 'object',
-    properties: {
-      timezone: { type: 'string', description: 'IANA tz, e.g. "Asia/Tokyo", "UTC"' },
-    },
-    additionalProperties: false,
-  },
-  readOnly: true,
-  handler: ({ timezone }) => {
-    const now = new Date();
-    const tz = (timezone as string) || 'UTC';
-    try {
-      const fmt = new Intl.DateTimeFormat('ja-JP', {
-        dateStyle: 'full',
-        timeStyle: 'long',
-        timeZone: tz,
-      });
-      return `ISO: ${now.toISOString()}\n${tz}: ${fmt.format(now)}`;
-    } catch (err) {
-      return { content: `bad timezone "${tz}": ${(err as Error).message}`, is_error: true };
-    }
-  },
-});
-
-// --- Render helpers -------------------------------------------------------
-
-const ROLE_LABEL: Record<string, string> = { user: 'You', assistant: 'Agent' };
-
-function addBubble(role: 'user' | 'agent' | 'system', text = ''): HTMLDivElement {
-  const div = document.createElement('div');
-  div.className = `bubble ${role}`;
-  div.textContent = text;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return div;
-}
-
-function setStatus(html: string): void {
-  statusEl.innerHTML = html;
-}
-
-function describe(event: LoopEvent): { cls: string; html: string } {
-  switch (event.kind) {
-    case 'turn_start':
-      return { cls: 'turn', html: `<span class="tag">turn</span> ${event.turn}` };
-    case 'router':
-      return {
-        cls: 'router',
-        html: `<span class="tag">router</span> picked <strong>${escape(event.decision.tool)}</strong>${
-          event.decision.reasoning
-            ? ` <code>${escape(event.decision.reasoning)}</code>`
-            : ''
-        }`,
-      };
-    case 'router_error':
-      return {
-        cls: 'router deny',
-        html: `<span class="tag">router</span> error: ${escape(event.error)}`,
-      };
-    case 'tool_call':
-      return {
-        cls: 'tool_call',
-        html: `<span class="tag">tool</span> ${escape(event.name)}<code>${escape(JSON.stringify(event.args))}</code>`,
-      };
-    case 'tool_result': {
-      const content = event.result.content || '';
-      const trimmed = content.length > 200 ? content.slice(0, 200) + '...' : content;
-      return {
-        cls: 'tool_result',
-        html: `<span class="tag">result</span> ${escape(event.name)}<code>${escape(trimmed)}</code>`,
-      };
-    }
-    case 'guard':
-      return {
-        cls: `guard ${event.result.decision === 'deny' ? 'deny' : ''}`.trim(),
-        html: `<span class="tag">guard</span> ${escape(event.stage)}/${escape(event.name)}: ${escape(event.result.decision)}${
-          event.result.reason ? ` <code>${escape(event.result.reason)}</code>` : ''
-        }`,
-      };
-    case 'permission':
-      return {
-        cls: `permission ${event.decision}`,
-        html: `<span class="tag">perm</span> ${escape(event.tool)}: ${escape(event.decision)} <code>${escape(event.reason)}</code>`,
-      };
-    case 'verify':
-      return {
-        cls: `verify ${event.passed ? '' : 'fail'}`.trim(),
-        html: `<span class="tag">verify</span> ${escape(event.tool)}: ${
-          event.passed ? 'pass' : 'fail'
-        }${event.summary ? ` <code>${escape(event.summary)}</code>` : ''}`,
-      };
-    case 'end':
-      return {
-        cls: 'turn',
-        html: `<span class="tag">end</span> ${escape(event.result.reason)} (${event.result.turns} turns)`,
-      };
-    default:
-      return { cls: '', html: escape(JSON.stringify(event)) };
+      break;
   }
 }
 
-function escape(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+// ─────────────────────────────────────────────────────────
+// UI 更新
+// ─────────────────────────────────────────────────────────
+
+function setConnStatus(s: 'connected' | 'disconnected' | 'connecting') {
+  const el = $<HTMLDivElement>('#conn-status');
+  el.className = `conn-status ${s}`;
+  el.querySelector('.conn-label')!.textContent =
+    s === 'connected' ? '接続済み' :
+    s === 'connecting' ? '接続中...' : '未接続';
 }
 
-function pushTrace(event: LoopEvent): void {
-  if (event.kind === 'delta') return;
-  const { cls, html } = describe(event);
-  const li = document.createElement('li');
-  li.className = cls;
-  li.innerHTML = html;
-  trace.appendChild(li);
-  trace.scrollTop = trace.scrollHeight;
-}
+function renderAgentList() {
+  const ul = $<HTMLUListElement>('#agent-list');
+  ul.innerHTML = '';
 
-// --- Init -----------------------------------------------------------------
-
-let agent: Agent | null = null;
-let llm: WebLLMCompleter | null = null;
-
-function renderToolList(names: string[]): void {
-  toolList.innerHTML = '';
-  for (const n of names) {
+  if (state.agents.size === 0) {
     const li = document.createElement('li');
-    li.textContent = n;
-    toolList.appendChild(li);
-  }
-}
-
-function renderGuardList(): void {
-  const guards = ['input/prompt_injection', 'tool_call/dangerous_shell', 'output/secret_leak'];
-  guardList.innerHTML = '';
-  for (const g of guards) {
-    const li = document.createElement('li');
-    li.textContent = g;
-    guardList.appendChild(li);
-  }
-}
-
-renderToolList([
-  'echo',
-  'calculator',
-  'fetch_url',
-  'fetch_markdown',
-  'extract_html',
-  'fetch_json',
-  'hn_top_stories',
-  'fetch_rss',
-  'render_in_iframe',
-  'search_wikipedia',
-  'get_current_time',
-]);
-renderGuardList();
-
-// --- Load button ---------------------------------------------------------
-
-loadBtn.addEventListener('click', async () => {
-  const model = modelSelect.value;
-  loadBtn.disabled = true;
-  modelSelect.disabled = true;
-  progress.hidden = false;
-  setStatus(`Loading <code>${escape(model)}</code>...`);
-
-  const customCfg = CUSTOM_APP_CONFIGS[model];
-  llm = new WebLLMCompleter({
-    model,
-    temperature: 0.4,
-    ...(customCfg ? { engineConfig: { appConfig: customCfg } } : {}),
-  });
-
-  try {
-    await llm.load((report) => {
-      progress.value = report.progress ?? 0;
-      setStatus(`Loading <code>${escape(model)}</code>: ${escape(report.text)}`);
-    });
-  } catch (err) {
-    setStatus(`Failed to load model: ${escape((err as Error).message)}`);
-    loadBtn.disabled = false;
-    modelSelect.disabled = false;
-    progress.hidden = true;
+    li.className = 'agent-item';
+    li.style.color = 'var(--text-muted)';
+    li.style.fontSize = '12px';
+    li.style.cursor = 'default';
+    li.textContent = 'エージェントがありません';
+    ul.appendChild(li);
     return;
   }
 
-  progress.hidden = true;
-  setStatus(`Model loaded — ready. Ask the agent something.`);
+  for (const [id, agent] of state.agents) {
+    const li = document.createElement('li');
+    li.className = `agent-item${id === state.activeId ? ' active' : ''}${agent.busy ? ' busy' : ''}`;
+    li.dataset.agentId = id;
 
-  await rebuildAgent();
+    const dot  = document.createElement('span');
+    dot.className = 'agent-dot';
 
-  promptEl.disabled = false;
-  sendBtn.disabled = false;
-  promptEl.focus();
-});
+    const name = document.createElement('span');
+    name.className = 'agent-item-name';
+    name.textContent = agent.name;
 
-const DEEP_RESEARCH_SYSTEM_PROMPT = `You are a research agent doing deep, multi-source investigation.
-
-HARD RULES — these override every other instruction:
-- You MUST call AT LEAST 2 DIFFERENT tools (different tool names) before you may select "none".
-- On turn 1 you MUST call a tool, never "none".
-- On turn 2 you MUST call a DIFFERENT tool than turn 1.
-- Only after 2+ distinct tool calls may you select "none" and write the final report.
-- ALWAYS provide all REQUIRED arguments per the tool schema. NEVER call a tool with empty {} arguments.
-- For search_wikipedia, the "query" string is required.
-  - For ambiguous topics, DISAMBIGUATE the query: "Rust (programming language)" not "Rust", "Python (programming language)" not "Python".
-  - Examples: {"query":"TypeScript"}, {"query":"Rust (programming language)"}, {"query":"Linux kernel"}.
-- For hn_top_stories, no arguments are required (just call it).
-- If a tool returns the wrong topic (e.g. wikipedia returned the metal "rust" when you wanted the language), DO NOT retry the same query — refine it with a disambiguator like "(programming language)" or "(technology)".
-
-Step-by-step procedure:
-1. Turn 1 — background: call search_wikipedia (or fetch_url for a primary source).
-2. Turn 2 — fresh data: call fetch_json (Hacker News, Reddit, GitHub APIs) or fetch_rss for current info.
-3. Turn 3+ — optional deeper dives if facts are still unclear.
-4. Once you have 2+ sources, select "none" and produce a structured report:
-   ## Summary
-   <2-3 line overview>
-   ## Key facts
-   - fact 1 (source)
-   - fact 2 (source)
-   - fact 3 (source)
-   ## Answer
-   <final concise answer>
-
-Tool guide:
-- search_wikipedia: encyclopedic background ("What is X?", history, definitions)
-- hn_top_stories: trending tech news from Hacker News (NO url parameter needed — just call it)
-- fetch_json: other JSON APIs (GitHub, Reddit .json suffix). Use ONLY with URLs explicitly given by the user.
-- fetch_url / fetch_markdown: primary docs, blogs, official sites — only with URLs the user gave.
-- fetch_rss: news feeds — only with URLs the user gave.
-- render_in_iframe: SPA pages where fetch_url returns empty.
-- get_current_time: when "today" / "now" matters.
-
-CRITICAL: Never invent URLs. If you do not know an exact URL, use search_wikipedia or hn_top_stories instead.
-Be precise. Cite sources by tool name. Never invent facts.`;
-
-async function rebuildAgent(): Promise<void> {
-  if (!llm) return;
-  agent = new Agent({ llm });
-  const deep = deepResearchToggle.checked;
-  // Deep research 時は URL を引数に取るツールを除外（小型モデルが URL を幻覚するのを防ぐ）。
-  const tools = deep
-    ? [echoTool, calcTool, searchWikipediaTool, hnTopStoriesTool, currentTimeTool]
-    : [
-        echoTool,
-        calcTool,
-        fetchTool,
-        fetchMarkdownTool,
-        extractHtmlTool,
-        fetchJsonTool,
-        hnTopStoriesTool,
-        fetchRssTool,
-        renderInIframeTool,
-        searchWikipediaTool,
-        currentTimeTool,
-      ];
-  agent.registerTools(...(tools as Parameters<typeof agent.registerTools>));
-  renderToolList(tools.map((t) => t.name));
-  await applyAgentConfig();
+    li.append(dot, name);
+    li.addEventListener('click', () => selectAgent(id));
+    ul.appendChild(li);
+  }
 }
 
-async function applyAgentConfig(): Promise<void> {
+function selectAgent(id: string) {
+  const agent = state.agents.get(id);
   if (!agent) return;
-  const deep = deepResearchToggle.checked;
-  await agent.configure({
-    max_turns: deep ? 12 : 6,
-    streaming: { enabled: true },
-    ...(deep ? { system_prompt: DEEP_RESEARCH_SYSTEM_PROMPT } : {}),
-    min_tool_kinds: deep ? 2 : 0,
-    guards: {
-      input: ['prompt_injection'],
-      tool_call: ['dangerous_shell'],
-      output: ['secret_leak'],
-    },
-    verify: {
-      verifiers: ['non_empty'],
-      max_consecutive_failures: deep ? 8 : 3,
-    },
+
+  state.activeId = id;
+  renderAgentList();
+  showAgentView(agent);
+}
+
+function showWelcome() {
+  $<HTMLDivElement>('#welcome').classList.remove('hidden');
+  $<HTMLDivElement>('#agent-view').classList.add('hidden');
+}
+
+function showAgentView(agent: AgentInfo) {
+  $<HTMLDivElement>('#welcome').classList.add('hidden');
+  const view = $<HTMLDivElement>('#agent-view');
+  view.classList.remove('hidden');
+
+  $<HTMLSpanElement>('#agent-name-display').textContent = agent.name;
+  updateBusyUI(agent.busy);
+
+  // 設定タブにデータを反映
+  $<HTMLInputElement>('#cfg-endpoint').value     = agent.config.endpoint;
+  $<HTMLInputElement>('#cfg-api-key').value      = agent.config.apiKey;
+  $<HTMLInputElement>('#cfg-model').value        = agent.config.model;
+  $<HTMLInputElement>('#cfg-binary').value       = agent.config.binaryPath;
+  $<HTMLTextAreaElement>('#cfg-system-prompt').value = agent.config.systemPrompt;
+  $<HTMLInputElement>('#cfg-max-turns').value    = String(agent.config.maxTurns);
+
+  rerenderChatLog();
+  renderToolsList(agent.id);
+
+  // チャットタブを表示
+  switchTab('chat');
+}
+
+function updateBusyUI(busy: boolean) {
+  const badge    = $<HTMLSpanElement>('#agent-status-badge');
+  const btnSend  = $<HTMLButtonElement>('#btn-send');
+  const btnAbort = $<HTMLButtonElement>('#btn-abort');
+
+  badge.textContent = busy ? '実行中' : '待機中';
+  badge.className   = `status-badge ${busy ? 'busy' : 'idle'}`;
+  btnSend.disabled  = busy;
+  btnAbort.classList.toggle('hidden', !busy);
+}
+
+function switchTab(name: string) {
+  $$('.tab').forEach((t) => t.classList.remove('active'));
+  $$('.tab-content').forEach((c) => {
+    c.classList.toggle('hidden', !(c as HTMLElement).id.endsWith(name));
+    if ((c as HTMLElement).id === `tab-${name}`) c.classList.add('active');
+  });
+  document.querySelector<HTMLButtonElement>(`.tab[data-tab="${name}"]`)
+    ?.classList.add('active');
+}
+
+// ─────────────────────────────────────────────────────────
+// チャットログ
+// ─────────────────────────────────────────────────────────
+
+function rerenderChatLog() {
+  const log  = $<HTMLDivElement>('#chat-log');
+  const hist = state.histories.get(state.activeId ?? '') ?? [];
+
+  log.innerHTML = '';
+  for (const msg of hist) {
+    const role = msg.role === 'assistant' ? 'assistant' : msg.role === 'user' ? 'user' : msg.role === 'error' ? 'error-msg' : 'system-msg';
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    div.textContent = msg.content;
+    if (msg.meta) {
+      const m = document.createElement('div');
+      m.className = 'meta';
+      m.textContent = msg.meta;
+      div.appendChild(m);
+    }
+    log.appendChild(div);
+  }
+  scrollChatToBottom();
+}
+
+function appendChatBubble(agentId: string, role: 'user' | 'assistant', content: string): HTMLDivElement {
+  const log = $<HTMLDivElement>('#chat-log');
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+  div.textContent = content;
+  log.appendChild(div);
+  scrollChatToBottom();
+
+  // 履歴にも記録（user のみ。assistant はストリーミング完了後に確定）
+  if (role === 'user') {
+    const hist = state.histories.get(agentId) ?? [];
+    hist.push({ role: 'user', content });
+    state.histories.set(agentId, hist);
+  }
+
+  return div;
+}
+
+function scrollChatToBottom() {
+  const log = $<HTMLDivElement>('#chat-log');
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderToolsList(agentId: string) {
+  const agent = state.agents.get(agentId);
+  const ul    = $<HTMLUListElement>('#tools-list');
+  ul.innerHTML = '';
+
+  if (!agent || agent.tools.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'tools-empty';
+    li.textContent = 'まだツールが登録されていません';
+    ul.appendChild(li);
+    return;
+  }
+
+  for (const name of agent.tools) {
+    const li = document.createElement('li');
+    li.textContent = name;
+    ul.appendChild(li);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// チャット送信
+// ─────────────────────────────────────────────────────────
+
+function sendMessage() {
+  const input = $<HTMLTextAreaElement>('#chat-input');
+  const prompt = input.value.trim();
+  if (!prompt || !state.activeId) return;
+
+  const agent = state.agents.get(state.activeId);
+  if (!agent || agent.busy) return;
+
+  input.value = '';
+  appendChatBubble(state.activeId, 'user', prompt);
+
+  send({
+    type:    'agent.run',
+    agentId: state.activeId,
+    prompt,
   });
 }
 
-deepResearchToggle.addEventListener('change', async () => {
-  if (!agent) return;
-  const enabled = deepResearchToggle.checked;
-  await rebuildAgent();
-  setStatus(
-    enabled
-      ? 'Deep Research mode ON — agent will gather from multiple sources.'
-      : 'Deep Research mode OFF — quick single-tool replies.',
-  );
-});
+// ─────────────────────────────────────────────────────────
+// エージェント作成モーダル
+// ─────────────────────────────────────────────────────────
 
-// --- Submit handler ------------------------------------------------------
+function openCreateModal() {
+  $<HTMLDivElement>('#modal-create').classList.remove('hidden');
+  $<HTMLInputElement>('#new-name').focus();
+}
 
-inputForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  if (!agent) return;
-  const prompt = promptEl.value.trim();
-  if (!prompt) return;
+function closeCreateModal() {
+  $<HTMLDivElement>('#modal-create').classList.add('hidden');
+}
 
-  promptEl.value = '';
-  promptEl.disabled = true;
-  sendBtn.disabled = true;
-  addBubble('user', prompt);
-  const agentBubble = addBubble('agent', '');
+function createAgent() {
+  const name         = $<HTMLInputElement>('#new-name').value.trim() || 'My Agent';
+  const endpoint     = $<HTMLInputElement>('#new-endpoint').value.trim();
+  const apiKey       = $<HTMLInputElement>('#new-api-key').value.trim();
+  const model        = $<HTMLInputElement>('#new-model').value.trim();
+  const binaryPath   = $<HTMLInputElement>('#new-binary').value.trim();
+  const systemPrompt = $<HTMLTextAreaElement>('#new-system-prompt').value.trim();
+  const maxTurns     = parseInt($<HTMLInputElement>('#new-max-turns').value, 10);
 
-  const startedAt = performance.now();
-  try {
-    for await (const ev of agent.runStream(prompt)) {
-      if (ev.kind === 'delta') {
-        agentBubble.textContent += ev.text;
-        chat.scrollTop = chat.scrollHeight;
-      } else if (ev.kind === 'event') {
-        pushTrace(ev.event);
-      } else if (ev.kind === 'end') {
-        pushTrace(ev);
-        if (!agentBubble.textContent && ev.result.response) {
-          agentBubble.textContent = ev.result.response;
-        }
-        const elapsed = ((performance.now() - startedAt) / 1000).toFixed(1);
-        setStatus(
-          `Done in ${elapsed}s — ${escape(ev.result.reason)} (${ev.result.turns} turns).`,
-        );
-      }
-    }
-  } catch (err) {
-    addBubble('system', `Error: ${(err as Error).message}`);
-  } finally {
-    promptEl.disabled = false;
-    sendBtn.disabled = false;
-    promptEl.focus();
+  send({
+    type: 'agent.create',
+    name,
+    endpoint:     endpoint     || 'http://localhost:8080/v1',
+    apiKey:       apiKey       || 'sk-gemma4',
+    model,
+    binaryPath:   binaryPath   || 'agent',
+    systemPrompt: systemPrompt || 'You are a helpful assistant.',
+    maxTurns:     isNaN(maxTurns) ? 10 : maxTurns,
+  });
+  closeCreateModal();
+}
+
+// ─────────────────────────────────────────────────────────
+// MCP 登録
+// ─────────────────────────────────────────────────────────
+
+function registerMCP() {
+  if (!state.activeId) return;
+  const transport = $<HTMLSelectElement>('#mcp-transport').value as 'stdio' | 'sse';
+
+  let payload: Record<string, unknown> = {
+    type:      'agent.mcp.register',
+    agentId:   state.activeId,
+    transport,
+  };
+
+  if (transport === 'stdio') {
+    const cmd  = $<HTMLInputElement>('#mcp-command').value.trim();
+    const args = $<HTMLInputElement>('#mcp-args').value.trim();
+    if (!cmd) { alert('コマンドを入力してください'); return; }
+    payload.command = cmd;
+    if (args) payload.args = args.split(/\s+/).filter(Boolean);
+  } else {
+    const url = $<HTMLInputElement>('#mcp-url').value.trim();
+    if (!url) { alert('URL を入力してください'); return; }
+    payload.url = url;
   }
-});
 
-console.log(`${ROLE_LABEL.user} starts ai-agent browser demo.`);
+  send(payload);
+}
+
+// ─────────────────────────────────────────────────────────
+// イベントバインド
+// ─────────────────────────────────────────────────────────
+
+function initEventListeners() {
+  // 新規エージェントボタン
+  $<HTMLButtonElement>('#btn-new-agent').addEventListener('click', openCreateModal);
+  $<HTMLButtonElement>('#btn-welcome-new').addEventListener('click', openCreateModal);
+
+  // モーダル
+  $<HTMLButtonElement>('#modal-close').addEventListener('click',      closeCreateModal);
+  $<HTMLButtonElement>('#modal-cancel').addEventListener('click',     closeCreateModal);
+  $<HTMLButtonElement>('#modal-create-btn').addEventListener('click', createAgent);
+  $<HTMLDivElement>('.modal-backdrop').addEventListener('click',      closeCreateModal);
+
+  // Enterでも作成
+  $<HTMLDivElement>('#modal-create').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) createAgent();
+    if (e.key === 'Escape') closeCreateModal();
+  });
+
+  // タブ切り替え
+  $$('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const t = (tab as HTMLElement).dataset['tab'];
+      if (t) switchTab(t);
+    });
+  });
+
+  // チャット送信
+  $<HTMLButtonElement>('#btn-send').addEventListener('click', sendMessage);
+  $<HTMLTextAreaElement>('#chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // 中断
+  $<HTMLButtonElement>('#btn-abort').addEventListener('click', () => {
+    if (state.activeId) send({ type: 'agent.abort', agentId: state.activeId });
+  });
+
+  // エージェント削除
+  $<HTMLButtonElement>('#btn-delete-agent').addEventListener('click', () => {
+    if (!state.activeId) return;
+    const agent = state.agents.get(state.activeId);
+    if (!agent) return;
+    if (!confirm(`「${agent.name}」を削除しますか？`)) return;
+    send({ type: 'agent.delete', agentId: state.activeId });
+  });
+
+  // MCP transport 切り替え
+  $<HTMLSelectElement>('#mcp-transport').addEventListener('change', (e) => {
+    const t = (e.target as HTMLSelectElement).value;
+    $<HTMLDivElement>('#mcp-stdio-fields').classList.toggle('hidden', t !== 'stdio');
+    $<HTMLDivElement>('#mcp-sse-fields').classList.toggle('hidden',   t !== 'sse');
+  });
+
+  // MCP 登録
+  $<HTMLButtonElement>('#btn-mcp-register').addEventListener('click', registerMCP);
+}
+
+// ─────────────────────────────────────────────────────────
+// エントリポイント
+// ─────────────────────────────────────────────────────────
+
+function main() {
+  initEventListeners();
+  connectWS();
+}
+
+main();

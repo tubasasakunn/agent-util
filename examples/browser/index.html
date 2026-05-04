@@ -1,67 +1,214 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="ja">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ai-agent — Browser Demo</title>
-    <link rel="stylesheet" href="/src/style.css" />
+    <title>ai-agent Studio</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
   </head>
   <body>
-    <header class="topbar">
-      <h1>ai-agent <span class="muted">browser demo</span></h1>
-      <div class="model-pick">
-        <label>
-          Model
-          <select id="model-select">
-            <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen 2.5 0.5B q4f16 (~400MB, 最軽量)</option>
-            <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B q4f16 (~700MB)</option>
-            <option value="gemma-4-E2B-it-q4f16_1-MLC" selected>Gemma 4 E2B q4f16 (~1.3GB, 最新・推奨)</option>
-            <option value="gemma-2-2b-it-q4f16_1-MLC-1k">Gemma 2 2B q4f16 1k-ctx (~1.4GB)</option>
-            <option value="gemma-2-2b-it-q4f16_1-MLC">Gemma 2 2B q4f16 (~1.5GB)</option>
-            <option value="gemma-2-2b-jpn-it-q4f16_1-MLC">Gemma 2 2B JPN q4f16 (~1.5GB, 日本語特化)</option>
-            <option value="Llama-3.2-3B-Instruct-q4f16_1-MLC">Llama 3.2 3B q4f16 (~2GB)</option>
-          </select>
-        </label>
-        <button id="load-btn">Load model</button>
-        <label class="deep-research-toggle" title="複数ソースから情報を集めて構造化レポートを返すモード">
-          <input type="checkbox" id="deep-research-toggle" />
-          🔍 Deep Research
-        </label>
-      </div>
-    </header>
-
-    <main class="layout">
-      <section class="chat-pane">
-        <div id="status" class="status">
-          Pick a model and click <strong>Load model</strong>. First load downloads the
-          weights into your browser&rsquo;s IndexedDB cache; subsequent loads are instant.
+    <div id="app">
+      <!-- サイドバー -->
+      <aside id="sidebar">
+        <div class="logo">
+          <span class="logo-icon">🤖</span>
+          <span class="logo-text">ai-agent Studio</span>
         </div>
-        <progress id="progress" max="1" value="0" hidden></progress>
 
-        <div id="chat" class="chat" aria-live="polite"></div>
+        <!-- 接続ステータス -->
+        <div id="conn-status" class="conn-status disconnected">
+          <span class="conn-dot"></span>
+          <span class="conn-label">接続中...</span>
+        </div>
 
-        <form id="input-form" class="input-row">
-          <textarea
-            id="prompt"
-            placeholder="Ask the agent... (e.g. &ldquo;What is 17 + 25?&rdquo; or &ldquo;Echo: hi&rdquo;)"
-            rows="2"
-            disabled
-          ></textarea>
-          <button id="send-btn" type="submit" disabled>Send</button>
-        </form>
-      </section>
-
-      <aside class="side">
-        <h2>Tools</h2>
-        <ul id="tool-list" class="tool-list"></ul>
-
-        <h2>Guards</h2>
-        <ul id="guard-list" class="guard-list"></ul>
-
-        <h2>Trace</h2>
-        <ol id="trace" class="trace"></ol>
+        <!-- エージェント一覧 -->
+        <div class="sidebar-section">
+          <div class="section-header">
+            <span>エージェント</span>
+            <button id="btn-new-agent" class="icon-btn" title="新規エージェント">＋</button>
+          </div>
+          <ul id="agent-list" class="agent-list"></ul>
+        </div>
       </aside>
-    </main>
+
+      <!-- メインエリア -->
+      <main id="main">
+        <!-- ウェルカム画面 -->
+        <div id="welcome" class="welcome-screen">
+          <div class="welcome-content">
+            <div class="welcome-icon">🤖</div>
+            <h2>ai-agent Studio</h2>
+            <p>「＋」ボタンでエージェントを作成してください</p>
+            <button id="btn-welcome-new" class="btn btn-primary">エージェントを作成</button>
+          </div>
+        </div>
+
+        <!-- エージェントビュー（選択時） -->
+        <div id="agent-view" class="hidden">
+          <!-- ヘッダー -->
+          <div class="agent-header">
+            <div class="agent-header-left">
+              <span id="agent-name-display" class="agent-title"></span>
+              <span id="agent-status-badge" class="status-badge idle">待機中</span>
+            </div>
+            <div class="tabs">
+              <button class="tab active" data-tab="chat">💬 チャット</button>
+              <button class="tab" data-tab="settings">⚙️ 設定</button>
+              <button class="tab" data-tab="skills">🔌 スキル/MCP</button>
+            </div>
+            <button id="btn-delete-agent" class="icon-btn danger" title="エージェントを削除">🗑</button>
+          </div>
+
+          <!-- チャットタブ -->
+          <div id="tab-chat" class="tab-content active">
+            <div id="chat-log" class="chat-log"></div>
+            <div class="chat-input-area">
+              <textarea
+                id="chat-input"
+                class="chat-textarea"
+                placeholder="メッセージを入力... (Ctrl+Enter で送信)"
+                rows="3"
+              ></textarea>
+              <div class="chat-actions">
+                <button id="btn-send" class="btn btn-primary">送信</button>
+                <button id="btn-abort" class="btn btn-danger hidden">中断</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 設定タブ -->
+          <div id="tab-settings" class="tab-content hidden">
+            <div class="settings-panel">
+              <h3>AI 設定</h3>
+              <div class="form-group">
+                <label>エンドポイント</label>
+                <input id="cfg-endpoint" type="text" class="input" value="http://localhost:8080/v1" />
+              </div>
+              <div class="form-group">
+                <label>API キー</label>
+                <input id="cfg-api-key" type="text" class="input" value="sk-gemma4" />
+              </div>
+              <div class="form-group">
+                <label>モデル <small>(空欄でサーバーのデフォルト)</small></label>
+                <input id="cfg-model" type="text" class="input" placeholder="例: gemma4, llama3.2" />
+              </div>
+              <div class="form-group">
+                <label>エージェントバイナリ</label>
+                <input id="cfg-binary" type="text" class="input" placeholder="agent" />
+                <small class="hint">PATH に agent が通っていれば空欄でOK。絶対パスでも可。</small>
+              </div>
+
+              <h3>エージェント設定</h3>
+              <div class="form-group">
+                <label>システムプロンプト</label>
+                <textarea id="cfg-system-prompt" class="input textarea" rows="4"></textarea>
+              </div>
+              <div class="form-group">
+                <label>最大ターン数</label>
+                <input id="cfg-max-turns" type="number" class="input" min="1" max="100" value="10" />
+              </div>
+
+              <div class="form-actions">
+                <small class="hint">※ 設定変更は次回エージェント作成時から反映されます（再作成が必要）</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- スキル/MCPタブ -->
+          <div id="tab-skills" class="tab-content hidden">
+            <div class="skills-panel">
+              <h3>MCP サーバー登録</h3>
+              <div class="form-group">
+                <label>トランスポート</label>
+                <select id="mcp-transport" class="input">
+                  <option value="stdio">stdio（コマンド起動）</option>
+                  <option value="sse">SSE（HTTP）</option>
+                </select>
+              </div>
+
+              <div id="mcp-stdio-fields">
+                <div class="form-group">
+                  <label>コマンド</label>
+                  <input id="mcp-command" type="text" class="input" placeholder="例: npx -y @modelcontextprotocol/server-filesystem" />
+                </div>
+                <div class="form-group">
+                  <label>引数 <small>(スペース区切り)</small></label>
+                  <input id="mcp-args" type="text" class="input" placeholder="例: /tmp /home/user/docs" />
+                </div>
+              </div>
+
+              <div id="mcp-sse-fields" class="hidden">
+                <div class="form-group">
+                  <label>URL</label>
+                  <input id="mcp-url" type="text" class="input" placeholder="例: http://localhost:3001/sse" />
+                </div>
+              </div>
+
+              <button id="btn-mcp-register" class="btn btn-primary">MCP 登録</button>
+
+              <h3>登録済みツール</h3>
+              <ul id="tools-list" class="tools-list">
+                <li class="tools-empty">まだツールが登録されていません</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- エージェント作成モーダル -->
+    <div id="modal-create" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h2>🤖 新規エージェント</h2>
+          <button id="modal-close" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>エージェント名</label>
+            <input id="new-name" type="text" class="input" placeholder="My Agent" />
+          </div>
+
+          <fieldset class="fieldset">
+            <legend>AI 設定</legend>
+            <div class="form-group">
+              <label>エンドポイント</label>
+              <input id="new-endpoint" type="text" class="input" value="http://localhost:8080/v1" />
+            </div>
+            <div class="form-group">
+              <label>API キー</label>
+              <input id="new-api-key" type="text" class="input" value="sk-gemma4" />
+            </div>
+            <div class="form-group">
+              <label>モデル <small>(空欄でサーバーのデフォルト)</small></label>
+              <input id="new-model" type="text" class="input" placeholder="例: gemma4" />
+            </div>
+            <div class="form-group">
+              <label>エージェントバイナリ</label>
+              <input id="new-binary" type="text" class="input" placeholder="agent" />
+              <small class="hint">フルパス例: /path/to/agent</small>
+            </div>
+          </fieldset>
+
+          <fieldset class="fieldset">
+            <legend>エージェント設定</legend>
+            <div class="form-group">
+              <label>システムプロンプト</label>
+              <textarea id="new-system-prompt" class="input textarea" rows="3" placeholder="You are a helpful assistant."></textarea>
+            </div>
+            <div class="form-group">
+              <label>最大ターン数</label>
+              <input id="new-max-turns" type="number" class="input" value="10" min="1" max="100" />
+            </div>
+          </fieldset>
+        </div>
+        <div class="modal-footer">
+          <button id="modal-cancel" class="btn btn-ghost">キャンセル</button>
+          <button id="modal-create-btn" class="btn btn-primary">作成</button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

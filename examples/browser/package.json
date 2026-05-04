@@ -1,21 +1,26 @@
 {
-  "name": "ai-agent-browser-demo",
+  "name": "ai-agent-studio",
+  "version": "0.1.0",
   "private": true,
-  "version": "0.0.1",
-  "description": "In-browser ai-agent demo: WebLLM + agent loop, no server.",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n SERVER,VITE -c cyan,green \"tsx server.ts\" \"vite --port 5173\"",
+    "server": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ai-agent/browser": "file:../../sdk/js-browser",
-    "@mlc-ai/web-llm": "^0.2.79",
-    "turndown": "^7.2.4"
+    "@ai-agent/sdk": "file:../../sdk/js",
+    "express": "^4.21.2",
+    "ws": "^8.18.1"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "vite": "^5.4.0"
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.17",
+    "@types/ws": "^8.5.14",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
   }
 }
