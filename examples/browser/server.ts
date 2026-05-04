@@ -114,7 +114,7 @@ async function handleMessage(
     // ─── エージェント作成 ───────────────────
     case 'agent.create': {
       const config: AgentConfig = {
-        endpoint: String(msg.endpoint ?? 'http://localhost:8080/v1'),
+        endpoint: String(msg.endpoint ?? 'http://localhost:8080/v1/chat/completions'),
         apiKey:   String(msg.apiKey   ?? 'sk-gemma4'),
         model:    String(msg.model    ?? ''),
         binaryPath: String(msg.binaryPath ?? 'agent'),
