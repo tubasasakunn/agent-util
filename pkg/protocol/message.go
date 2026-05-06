@@ -73,6 +73,14 @@ func NewNotification(method string, params any) (*Request, error) {
 }
 
 // IntPtr は int のポインタを返すヘルパー。
-func IntPtr(n int) *int {
-	return &n
-}
+func IntPtr(n int) *int { return &n }
+
+// BoolPtr は bool のポインタを返すヘルパー。
+// omitempty フィールドに true/false を明示的にセットするときに使う。
+func BoolPtr(b bool) *bool { return &b }
+
+// Float64Ptr は float64 のポインタを返すヘルパー。
+func Float64Ptr(f float64) *float64 { return &f }
+
+// StringPtr は string のポインタを返すヘルパー。
+func StringPtr(s string) *string { return &s }

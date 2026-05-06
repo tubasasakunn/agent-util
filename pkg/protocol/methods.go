@@ -30,6 +30,12 @@ const (
 	MethodJudgeEvaluate = "judge.evaluate"
 )
 
+// LoopConfig.Type に指定できる値。
+const (
+	LoopTypeReact = "react" // デフォルト: ルーター→ツール→レスポンスの ReAct ループ
+	LoopTypeReaf  = "reaf"  // ReAF: ルーター→ツール→評価ファンクション→レスポンスのループ
+)
+
 // ガードのステージ識別子（GuardDefinition.Stage / GuardExecuteParams.Stage）。
 const (
 	GuardStageInput    = "input"

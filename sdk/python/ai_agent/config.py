@@ -22,7 +22,7 @@ JSON-Schema sources (docs/schemas/*.json):
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 def _strip_none(value: Any) -> Any:
@@ -139,10 +139,10 @@ class StreamingConfig:
 class LoopConfig:
     """Loop pattern config.
 
-    type: "react" (default) | "reaf"
+    type: ``"react"`` (ReAct ループ、デフォルト) または ``"reaf"`` (ReAF ループ)
     """
 
-    type: str = "react"
+    type: Literal["react", "reaf"] = "react"
 
 
 @dataclass
