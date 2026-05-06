@@ -766,11 +766,17 @@ class Agent:
         prompts: list[str],
         *,
         max_concurrency: int = 3,
+        timeout: float | None = None,
     ) -> list[str]:
         """複数プロンプトを並列でフォーク処理して結果を返す。
 
         各プロンプトは独立した fork エージェントで処理されるため、
         メインの会話履歴には影響しない。
+
+        Args:
+            prompts: 処理するプロンプトのリスト。
+            max_concurrency: 同時並列数の上限（デフォルト 3）。
+            timeout: 1プロンプトあたりの秒数制限。``None`` は無制限。
         """
         logger.info("[Agent:%s] batch: %d プロンプト (並列数=%d)", self._name, len(prompts), max_concurrency)
         sem = asyncio.Semaphore(max_concurrency)
@@ -779,7 +785,7 @@ class Agent:
             async with sem:
                 child = await self.fork()
                 try:
-                    return await child.input(prompt)
+                    return await child.input(prompt, timeout=timeout)
                 finally:
                     await child.close()
 

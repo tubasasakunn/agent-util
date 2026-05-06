@@ -60,6 +60,7 @@ from ai_agent.errors import (
     AgentError,
     GuardDenied,
     ToolError,
+    TripwireTriggered,
 )
 
 # --- デコレータ / ユーティリティ ---
@@ -99,6 +100,7 @@ __all__ = [
     "AgentAborted",
     "ToolError",
     "GuardDenied",
+    "TripwireTriggered",
     # デコレータ / ユーティリティ
     "GuardCallable",
     "GuardDefinition",

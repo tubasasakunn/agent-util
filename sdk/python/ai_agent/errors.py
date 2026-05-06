@@ -16,8 +16,8 @@ Mapping to the JSON-RPC errors defined in ``pkg/protocol/errors.go``:
 * ``-32002`` Agent already running -> ``AgentBusy``
 * ``-32003`` Aborted               -> ``AgentAborted``
 * ``-32004`` Message too large     -> ``AgentError``
-* ``-32005`` Guard denied          -> ``GuardDenied(decision="deny")``
-* ``-32006`` Tripwire fired        -> ``GuardDenied(decision="tripwire")``
+* ``-32005`` Guard denied          -> ``GuardDenied``
+* ``-32006`` Tripwire fired        -> ``TripwireTriggered`` (subclass of ``GuardDenied``)
 """
 
 from __future__ import annotations
@@ -70,22 +70,23 @@ class ToolError(AgentError):
 
 
 class GuardDenied(AgentError):
-    """Raised when an input guard denies a prompt or a tripwire fires.
+    """Raised when an input/output guard denies a prompt.
 
     Attributes:
-        decision: ``"deny"`` (prompt blocked) or ``"tripwire"`` (alert but
-            the run may have already started; treat as a security event).
+        decision: ``"deny"`` or ``"tripwire"``.
         reason:   Human-readable explanation from the guard implementation.
+
+    For tripwire events use :class:`TripwireTriggered` (a subclass) so you
+    can distinguish them with ``except TripwireTriggered``.
 
     Example::
 
         try:
             result = await agent.input(user_prompt)
+        except TripwireTriggered as e:
+            alert_security_team(e.reason)
         except GuardDenied as e:
-            if e.decision == "tripwire":
-                alert_security_team(e.reason)
-            else:
-                return "申し訳ありませんが、そのリクエストはお受けできません。"
+            return "申し訳ありませんが、そのリクエストはお受けできません。"
     """
 
     def __init__(
@@ -109,6 +110,32 @@ class GuardDenied(AgentError):
         return " — ".join(parts)
 
 
+class TripwireTriggered(GuardDenied):
+    """Raised when a tripwire guard fires (security alert).
+
+    ``TripwireTriggered`` is a subclass of :class:`GuardDenied`, so existing
+    ``except GuardDenied`` blocks continue to catch it.  Handlers that need to
+    distinguish security events from ordinary denials can use::
+
+        except TripwireTriggered as e:
+            alert_security_team(e.reason)
+        except GuardDenied:
+            ...
+
+    Maps to JSON-RPC error code ``-32006``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = "",
+        code: int | None = None,
+        data: Any | None = None,
+    ) -> None:
+        super().__init__(message, decision="tripwire", reason=reason, code=code, data=data)
+
+
 # Code -> class mapping used by jsonrpc.py to translate error responses.
 _CODE_TO_CLASS: dict[int, type[AgentError]] = {
     -32000: ToolError,
@@ -125,8 +152,14 @@ _ERR_TRIPWIRE = -32006
 def from_rpc_error(code: int, message: str, data: Any | None = None) -> AgentError:
     """Convert a JSON-RPC error tuple into the most specific SDK exception."""
 
-    if code in (_ERR_GUARD_DENIED, _ERR_TRIPWIRE):
-        decision = "tripwire" if code == _ERR_TRIPWIRE else "deny"
+    if code == _ERR_TRIPWIRE:
+        reason = message
+        if isinstance(data, dict):
+            reason = data.get("reason", reason)
+        return TripwireTriggered(message, reason=reason, code=code, data=data)
+
+    if code == _ERR_GUARD_DENIED:
+        decision = "deny"
         reason = message
         if isinstance(data, dict):
             reason = data.get("reason", reason)

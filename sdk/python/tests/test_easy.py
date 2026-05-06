@@ -23,7 +23,7 @@ from ai_agent.config import (
     StreamingConfig,
 )
 from ai_agent.easy import Agent, AgentConfig, Tool, _MessageIndex
-from ai_agent.errors import AgentError, GuardDenied, from_rpc_error
+from ai_agent.errors import AgentError, GuardDenied, TripwireTriggered, from_rpc_error
 from ai_agent.guard import input_guard
 from ai_agent.tool import tool
 from ai_agent.verifier import verifier
@@ -245,9 +245,24 @@ def test_from_rpc_error_guard_denied() -> None:
 
 def test_from_rpc_error_tripwire() -> None:
     err = from_rpc_error(-32006, "tripwire [input]: injection", {"decision": "tripwire", "source": "input", "reason": "injection"})
-    assert isinstance(err, GuardDenied)
+    assert isinstance(err, TripwireTriggered)
+    assert isinstance(err, GuardDenied)  # TripwireTriggered は GuardDenied のサブクラス
     assert err.decision == "tripwire"
     assert err.reason == "injection"
+
+
+def test_tripwire_catchable_as_guard_denied() -> None:
+    err = from_rpc_error(-32006, "tripwire", {"reason": "injection attempt"})
+    caught_as_guard = False
+    caught_as_tripwire = False
+    try:
+        raise err
+    except TripwireTriggered:
+        caught_as_tripwire = True
+    except GuardDenied:
+        caught_as_guard = True
+    assert caught_as_tripwire
+    assert not caught_as_guard
 
 
 def test_from_rpc_error_fallback_without_data() -> None:
