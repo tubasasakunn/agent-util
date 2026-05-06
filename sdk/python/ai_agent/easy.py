@@ -427,15 +427,20 @@ class Agent:
     # ツール / スキル / MCP 登録
     # ---------------------------------------------------------------- #
 
-    async def register_tools(self, *tools: Tool) -> int:
+    async def register_tools(self, *tools: Tool) -> list[str]:
+        """ツールを登録してコアに通知する。
+
+        Returns:
+            登録されたツール名のリスト。
+        """
         core = await self._ensure_started()
         defns = [t.definition for t in tools]
         for t in tools:
             self._registered_tools[t.name] = t
             self._tool_stats[t.name] = {"success": 0, "error": 0}
-        count = await core.register_tools(*defns)
-        logger.info("[Agent:%s] ツール登録: %d 件", self._name, count)
-        return count
+        names = await core.register_tools(*defns)
+        logger.info("[Agent:%s] ツール登録: %s", self._name, names)
+        return names
 
     async def register_skills(self, skill_dir: str) -> list[str]:
         """スキルディレクトリを読み込み MCP サーバーとして登録する。"""

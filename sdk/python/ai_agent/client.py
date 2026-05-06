@@ -231,20 +231,27 @@ class Agent:
         store: dict[str, Any],
         rpc_method: str,
         rpc_list_key: str,
-    ) -> int:
-        """共通登録ヘルパー。defs を store に格納してコアへ RPC 送信する。"""
+    ) -> list[str]:
+        """共通登録ヘルパー。defs を store に格納してコアへ RPC 送信する。
+
+        Returns:
+            登録されたアイテムの名前リスト。
+        """
         for defn in defs:
             store[defn.name] = defn
         params = {rpc_list_key: [d.to_protocol_dict() for d in defs]}
-        raw = await self._rpc.call(rpc_method, params)
-        return int(raw.get("registered", 0))
+        await self._rpc.call(rpc_method, params)
+        return [d.name for d in defs]
 
-    async def register_tools(self, *tools: Any) -> int:
+    async def register_tools(self, *tools: Any) -> list[str]:
         """Register ``@tool``-decorated callables with the core.
 
         Pass either the decorated functions (any object with the
         ``__ai_agent_tool__`` attribute) or :class:`ToolDefinition` instances
         directly.
+
+        Returns:
+            Names of the registered tools.
         """
 
         defs: list[ToolDefinition] = []
@@ -264,8 +271,12 @@ class Agent:
 
         return await self._register_definitions(defs, self._tools, _M_TOOL_REGISTER, "tools")
 
-    async def register_guards(self, *guards: Any) -> int:
-        """Register guard callables decorated with ``@input_guard`` etc."""
+    async def register_guards(self, *guards: Any) -> list[str]:
+        """Register guard callables decorated with ``@input_guard`` etc.
+
+        Returns:
+            Names of the registered guards.
+        """
 
         defs: list[GuardDefinition] = []
         for g in guards:
@@ -282,8 +293,12 @@ class Agent:
 
         return await self._register_definitions(defs, self._guards, _M_GUARD_REGISTER, "guards")
 
-    async def register_verifiers(self, *verifiers: Any) -> int:
-        """Register verifier callables decorated with ``@verifier``."""
+    async def register_verifiers(self, *verifiers: Any) -> list[str]:
+        """Register verifier callables decorated with ``@verifier``.
+
+        Returns:
+            Names of the registered verifiers.
+        """
 
         defs: list[VerifierDefinition] = []
         for v in verifiers:
