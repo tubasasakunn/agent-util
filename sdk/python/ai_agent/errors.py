@@ -6,19 +6,18 @@ match more precise subclasses for known JSON-RPC error codes.
 
 Mapping to the JSON-RPC errors defined in ``pkg/protocol/errors.go``:
 
-* ``-32700`` Parse error          -> ``AgentError``
-* ``-32600`` Invalid request      -> ``AgentError``
-* ``-32601`` Method not found     -> ``AgentError``
-* ``-32602`` Invalid params       -> ``AgentError``
-* ``-32603`` Internal error       -> ``AgentError``
-* ``-32000`` Tool not found       -> ``ToolError``
-* ``-32001`` Tool exec failed     -> ``ToolError``
+* ``-32700`` Parse error           -> ``AgentError``
+* ``-32600`` Invalid request       -> ``AgentError``
+* ``-32601`` Method not found      -> ``AgentError``
+* ``-32602`` Invalid params        -> ``AgentError``
+* ``-32603`` Internal error        -> ``AgentError``
+* ``-32000`` Tool not found        -> ``ToolError``
+* ``-32001`` Tool exec failed      -> ``ToolError``
 * ``-32002`` Agent already running -> ``AgentBusy``
-* ``-32003`` Aborted              -> ``AgentAborted``
-* ``-32004`` Message too large    -> ``AgentError``
-
-Guard "deny"/"tripwire" decisions surface as ``GuardDenied`` from
-``Agent.run`` when the input guard rejects a prompt.
+* ``-32003`` Aborted               -> ``AgentAborted``
+* ``-32004`` Message too large     -> ``AgentError``
+* ``-32005`` Guard denied          -> ``GuardDenied(decision="deny")``
+* ``-32006`` Tripwire fired        -> ``GuardDenied(decision="tripwire")``
 """
 
 from __future__ import annotations
@@ -118,9 +117,21 @@ _CODE_TO_CLASS: dict[int, type[AgentError]] = {
     -32003: AgentAborted,
 }
 
+# Guard/tripwire error codes (mirrors pkg/protocol/errors.go).
+_ERR_GUARD_DENIED = -32005
+_ERR_TRIPWIRE = -32006
+
 
 def from_rpc_error(code: int, message: str, data: Any | None = None) -> AgentError:
     """Convert a JSON-RPC error tuple into the most specific SDK exception."""
+
+    if code in (_ERR_GUARD_DENIED, _ERR_TRIPWIRE):
+        decision = "tripwire" if code == _ERR_TRIPWIRE else "deny"
+        reason = message
+        if isinstance(data, dict):
+            reason = data.get("reason", reason)
+            decision = data.get("decision", decision)
+        return GuardDenied(message, decision=decision, reason=reason, code=code, data=data)
 
     cls = _CODE_TO_CLASS.get(code, AgentError)
     return cls(message, code=code, data=data)

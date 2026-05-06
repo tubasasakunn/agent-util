@@ -16,4 +16,6 @@ const (
 	ErrCodeAgentBusy       = -32002 // agent.run が既に実行中
 	ErrCodeAborted         = -32003 // agent.abort により中断
 	ErrCodeMessageTooLarge = -32004 // メッセージサイズ上限超過
+	ErrCodeGuardDenied     = -32005 // 入力/出力ガードによるプロンプト拒否
+	ErrCodeTripwire        = -32006 // トリップワイヤ発動（セキュリティアラート）
 )

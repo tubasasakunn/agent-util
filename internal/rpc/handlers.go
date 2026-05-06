@@ -3,7 +3,9 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"ai-agent/internal/engine"
@@ -111,9 +113,38 @@ func (h *Handlers) handleAgentRun(ctx context.Context, params json.RawMessage) (
 	result, err := h.Engine().Run(runCtx, p.Prompt)
 	if err != nil {
 		h.notifier.StreamEnd("error", 0)
+		// トリップワイヤは専用コードで返す（Python 側 GuardDenied(decision="tripwire") に変換）
+		var tw *engine.TripwireError
+		if errors.As(err, &tw) {
+			data, _ := json.Marshal(map[string]string{
+				"decision": "tripwire",
+				"source":   tw.Source,
+				"reason":   tw.Reason,
+			})
+			return nil, &protocol.RPCError{
+				Code:    protocol.ErrCodeTripwire,
+				Message: tw.Error(),
+				Data:    data,
+			}
+		}
 		return nil, &protocol.RPCError{
 			Code:    protocol.ErrCodeInternal,
 			Message: err.Error(),
+		}
+	}
+
+	// 入力ガード拒否は専用コードで返す（Python 側 GuardDenied(decision="deny") に変換）
+	if result.Reason == "input_denied" {
+		guardReason := strings.TrimPrefix(result.Response, "Input rejected: ")
+		data, _ := json.Marshal(map[string]string{
+			"decision": "deny",
+			"reason":   guardReason,
+		})
+		h.notifier.StreamEnd(result.Reason, result.Turns)
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeGuardDenied,
+			Message: result.Response,
+			Data:    data,
 		}
 	}
 

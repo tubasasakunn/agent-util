@@ -600,13 +600,11 @@ func TestIntegration_RemoteGuardDeniesInput(t *testing.T) {
 		t.Errorf("input = %q", gp.Input)
 	}
 
-	if runResponse.Error != nil {
-		t.Fatalf("run error: %+v", runResponse.Error)
+	if runResponse.Error == nil {
+		t.Fatal("expected RPC error for guard deny, got success")
 	}
-	var ar protocol.AgentRunResult
-	json.Unmarshal(runResponse.Result, &ar)
-	if ar.Reason != "input_denied" {
-		t.Errorf("Reason = %q, want input_denied", ar.Reason)
+	if runResponse.Error.Code != protocol.ErrCodeGuardDenied {
+		t.Errorf("Code = %d, want %d (ErrCodeGuardDenied)", runResponse.Error.Code, protocol.ErrCodeGuardDenied)
 	}
 
 	cancel()
