@@ -33,12 +33,12 @@ func (t *skillTool) Parameters() json.RawMessage {
 func (t *skillTool) Execute(_ context.Context, _ json.RawMessage) (tool.Result, error) {
 	content, err := t.skill.Activate()
 	if err != nil {
-		return tool.Result{Content: fmt.Sprintf("failed to activate skill: %v", err), IsError: true}, nil
+		return tool.Errorf("failed to activate skill: %v", err), nil
 	}
 	// スキル内容取得後はルーターが "none" へ遷移するよう明示する。
 	body := fmt.Sprintf("<skill_content name=%q>\n%s\n\nInstructions loaded. Follow these to respond. Select tool=\"none\" next.\n</skill_content>",
 		t.skill.Name, content)
-	return tool.Result{Content: body}, nil
+	return tool.OK(body), nil
 }
 
 // CatalogAsTools は Catalog のすべてのスキルを []tool.Tool に変換する。

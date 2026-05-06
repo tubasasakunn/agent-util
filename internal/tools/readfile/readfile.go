@@ -3,7 +3,6 @@ package readfile
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -40,10 +39,10 @@ type readFileArgs struct {
 func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {
 	var a readFileArgs
 	if err := json.Unmarshal(args, &a); err != nil {
-		return tool.Result{Content: "invalid arguments: " + err.Error(), IsError: true}, nil
+		return tool.Errorf("invalid arguments: %v", err), nil
 	}
 	if a.Path == "" {
-		return tool.Result{Content: "path is required", IsError: true}, nil
+		return tool.Errorf("path is required"), nil
 	}
 
 	// workDir が設定されていて相対パスの場合、workDir を基準に解決する
@@ -54,10 +53,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tool.Result, 
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return tool.Result{
-			Content: fmt.Sprintf("failed to read file: %s", err.Error()),
-			IsError: true,
-		}, nil
+		return tool.Errorf("failed to read file: %s", err), nil
 	}
 
 	return tool.Result{

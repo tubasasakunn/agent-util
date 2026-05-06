@@ -37,7 +37,7 @@ type echoArgs struct {
 func (t *Tool) Execute(_ context.Context, args json.RawMessage) (tool.Result, error) {
 	var a echoArgs
 	if err := json.Unmarshal(args, &a); err != nil {
-		return tool.Result{Content: "invalid arguments: " + err.Error(), IsError: true}, nil
+		return tool.Errorf("invalid arguments: %v", err), nil
 	}
-	return tool.Result{Content: a.Message}, nil
+	return tool.OK(a.Message), nil
 }
