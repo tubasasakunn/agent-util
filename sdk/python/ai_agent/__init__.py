@@ -30,6 +30,7 @@
 from ai_agent.easy import (
     Agent,
     AgentConfig,
+    AgentResult,
     GoalJudgeCallable,
     StatusCallback,
     StreamCallback,
@@ -74,6 +75,7 @@ __all__ = [
     # 高レベル（推奨）
     "Agent",
     "AgentConfig",
+    "AgentResult",
     "GoalJudgeCallable",
     "StatusCallback",
     "StreamCallback",

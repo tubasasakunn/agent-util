@@ -44,6 +44,7 @@ from typing import Any, AsyncIterator, Callable
 
 from ai_agent.client import (
     Agent as _CoreAgent,
+    AgentResult,
     AgentResult as _AgentResult,
     GoalJudgeCallable,
     StatusCallback,
@@ -594,6 +595,49 @@ class Agent:
         self._index.add("assistant", result.response)
         return result.response
 
+    async def input_verbose(
+        self,
+        prompt: str,
+        *,
+        max_turns: int | None = None,
+        on_delta: StreamCallback | None = None,
+        on_status: StatusCallback | None = None,
+        timeout: float | None = None,
+    ) -> _AgentResult:
+        """``input()`` と同じだが、ターン数・トークン使用量・終了理由も返す。
+
+        Returns:
+            AgentResult: .response (str), .turns (int), .reason (str), .usage
+
+        Example::
+
+            result = await agent.input_verbose("東京の人口は？")
+            print(result.response)
+            print(f"turns={result.turns} tokens={result.usage.total_tokens}")
+        """
+        t0 = time.perf_counter()
+        core = await self._ensure_started()
+
+        result = await core.run(
+            prompt,
+            max_turns=max_turns,
+            stream=on_delta,
+            on_status=on_status,
+            timeout=timeout,
+        )
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            "[Agent:%s] input_verbose: %s… (turns=%d reason=%s elapsed=%.2fs)",
+            self._name,
+            result.response[:60].replace("\n", " "),
+            result.turns,
+            result.reason,
+            elapsed,
+        )
+        self._index.add("user", prompt)
+        self._index.add("assistant", result.response)
+        return result
+
     # ---------------------------------------------------------------- #
     # コンテキスト要約
     # ---------------------------------------------------------------- #
@@ -742,7 +786,13 @@ class Agent:
     # ---------------------------------------------------------------- #
 
     async def stream(self, prompt: str) -> AsyncIterator[str]:
-        """ストリーミングでトークンを1つずつ yield する。"""
+        """ストリーミングでトークンを1つずつ yield する。
+
+        .. note::
+            事前に ``AgentConfig(streaming=StreamingConfig(enabled=True))`` を
+            設定する必要がある。未設定の場合、このメソッドは完了後に一括で
+            レスポンスを yield する（ストリーミングなしの動作）。
+        """
         core = await self._ensure_started()
         queue: asyncio.Queue[str | None] = asyncio.Queue()
 
@@ -872,6 +922,7 @@ class Agent:
 __all__ = [
     "Agent",
     "AgentConfig",
+    "AgentResult",
     "GoalJudgeCallable",
     "StatusCallback",
     "StreamCallback",
