@@ -68,7 +68,7 @@ from ai_agent.tool import tool
 from ai_agent.verifier import verifier
 
 # --- 低レベル API（後方互換・高度な用途向け） ---
-from ai_agent.client import Agent as RawAgent, AgentResult
+from ai_agent.client import Agent as RawAgent
 from ai_agent.config import AgentConfig as CoreAgentConfig
 
 __all__ = [
@@ -107,7 +107,6 @@ __all__ = [
     "verifier",
     # 低レベル（後方互換）
     "RawAgent",
-    "AgentResult",
     "CoreAgentConfig",
 ]
 

@@ -303,7 +303,7 @@ async def test_agent_register_tool_then_handle_execute() -> None:
     register_task = asyncio.create_task(serve_register())
     n = await agent.register_tools(add)
     await register_task
-    assert n == 1
+    assert n == ["add"]
 
     # Now simulate a core -> wrapper tool.execute request.
     await peer.send_to_client(
