@@ -16,6 +16,7 @@ Use it as an async context manager:
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -441,7 +442,7 @@ class Agent:
             response = params.get("response", "")
             turn = int(params.get("turn", 0))
             ret = handler(response, turn)
-            if asyncio.iscoroutine(ret):
+            if inspect.isawaitable(ret):
                 ret = await ret
             terminate, reason = ret
         except Exception as exc:  # noqa: BLE001

@@ -168,3 +168,14 @@ def from_rpc_error(code: int, message: str, data: Any | None = None) -> AgentErr
 
     cls = _CODE_TO_CLASS.get(code, AgentError)
     return cls(message, code=code, data=data)
+
+
+__all__ = [
+    "AgentError",
+    "AgentBusy",
+    "AgentAborted",
+    "ToolError",
+    "GuardDenied",
+    "TripwireTriggered",
+    "from_rpc_error",
+]

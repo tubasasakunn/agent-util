@@ -463,3 +463,41 @@ async def test_easy_agent_guard_denied_raises() -> None:
 
     assert exc_info.value.decision == "deny"
     assert exc_info.value.reason == "bad prompt"
+
+
+@pytest.mark.asyncio
+async def test_easy_agent_register_judge() -> None:
+    """register_judge でゴール判定ハンドラを登録し、コアに judge.register を送る。"""
+    peer = FakePeer()
+    agent = await _make_easy_agent(peer)
+
+    def my_judge(response: str, turn: int) -> tuple[bool, str]:
+        return turn >= 3, "max turns reached"
+
+    async def serve() -> None:
+        msg = await peer.read_from_client()
+        assert msg["method"] == "judge.register"
+        assert msg["params"]["name"] == "my_judge"
+        await peer.send_to_client({"jsonrpc": "2.0", "id": msg["id"], "result": {}})
+
+    task = asyncio.create_task(serve())
+    await agent.register_judge("my_judge", my_judge)
+    await task
+
+
+@pytest.mark.asyncio
+async def test_easy_agent_register_async_judge() -> None:
+    """async judge ハンドラが isawaitable で正しく await される。"""
+    from ai_agent.client import Agent as CoreAgent
+
+    # _handle_judge_evaluate を直接テストする
+    core = CoreAgent.__new__(CoreAgent)
+    core._judges = {}
+
+    async def async_judge(response: str, turn: int) -> tuple[bool, str]:
+        return turn >= 5, "goal reached"
+
+    core._judges["async_judge"] = async_judge
+    result = await core._handle_judge_evaluate({"name": "async_judge", "response": "done", "turn": 5})
+    assert result["terminate"] is True
+    assert result["reason"] == "goal reached"
