@@ -195,8 +195,8 @@ class JsonRpcClient:
         """Send a wrapper -> core request and await its result.
 
         Raises :class:`AgentError` (or a subclass) on JSON-RPC error responses,
-        :class:`asyncio.TimeoutError` on timeout, or :class:`AgentError` on
-        transport failure.
+        timeout, or transport failure. All error paths raise :class:`AgentError`
+        so ``except AgentError`` is sufficient to catch all SDK errors.
         """
 
         if self._writer is None:
@@ -226,6 +226,10 @@ class JsonRpcClient:
                 if timeout is not None
                 else await fut
             )
+        except asyncio.TimeoutError:
+            raise AgentError(
+                f"RPC timeout after {timeout}s waiting for {method!r} (id={rpc_id})"
+            ) from None
         finally:
             self._pending.pop(rpc_id, None)
 
