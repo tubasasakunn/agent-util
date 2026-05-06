@@ -44,8 +44,9 @@ _N_STREAM_DELTA = "stream.delta"
 _N_STREAM_END = "stream.end"
 _N_CONTEXT_STATUS = "context.status"
 
-# GoalJudge callable type: (response: str, turn: int) -> (terminate: bool, reason: str)
-GoalJudgeCallable = Callable[[str, int], Any]
+_GoalJudgeResult = tuple[bool, str]
+# GoalJudge callable: (response, turn) -> (terminate, reason).  Sync or async.
+GoalJudgeCallable = Callable[[str, int], "_GoalJudgeResult | Awaitable[_GoalJudgeResult]"]
 
 
 @dataclass

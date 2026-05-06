@@ -113,8 +113,15 @@ class AgentConfig:
     binary: str = "agent"
     """コンパイル済みエージェントバイナリのパス。"""
     env: dict[str, str] | None = None
-    """子プロセスへ追加する環境変数。
-    SLLM_ENDPOINT（必須）/ SLLM_API_KEY / SLLM_MODEL を含める。"""
+    """子プロセスへ追加する環境変数。``None`` の場合は親プロセスの環境変数を継承する。
+
+    SLLM_ENDPOINT（必須）/ SLLM_API_KEY / SLLM_MODEL をここか親環境に設定すること。
+    例::
+
+        env={"SLLM_ENDPOINT": "http://localhost:8080/v1/chat/completions",
+             "SLLM_API_KEY": "sk-xxx",
+             "SLLM_MODEL": "gemma4"}
+    """
     cwd: str | None = None
     """子プロセスの作業ディレクトリ。省略時は呼び出し元のカレントディレクトリ。"""
 
@@ -238,6 +245,12 @@ class Tool:
     @property
     def name(self) -> str:
         return self._defn.name
+
+    def __repr__(self) -> str:
+        desc = self._defn.description
+        if len(desc) > 50:
+            desc = desc[:50] + "..."
+        return f"Tool(name={self._defn.name!r}, description={desc!r}, read_only={self._defn.read_only})"
 
 
 # ------------------------------------------------------------------ #

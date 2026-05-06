@@ -224,6 +224,18 @@ def test_tool_name_override() -> None:
     assert t.name == "my_custom_tool"
 
 
+def test_tool_repr() -> None:
+    def search(query: str) -> str:
+        """Search the web."""
+        return ""
+
+    t = Tool(search, description="Search the web for a query", read_only=True)
+    r = repr(t)
+    assert "Tool(" in r
+    assert "search" in r
+    assert "read_only=True" in r
+
+
 # ---------------------------------------------------------------------------
 # _MessageIndex
 # ---------------------------------------------------------------------------
