@@ -257,6 +257,27 @@ def test_message_index_all_messages() -> None:
     assert msgs[1]["role"] == "assistant"
 
 
+def test_message_index_copy_isolation() -> None:
+    """copy() 後に子への追加が親に影響しないことを確認。"""
+    parent = _MessageIndex()
+    parent.add("user", "parent message")
+
+    child = parent.copy()
+    child.add("user", "child only message")
+
+    assert len(parent.all_messages()) == 1, "親のインデックスは変化してはいけない"
+    assert len(child.all_messages()) == 2, "子には両方のメッセージが入っている"
+
+
+def test_message_index_copy_inherits_content() -> None:
+    """copy() が既存ドキュメントを引き継いでいることを確認。"""
+    idx = _MessageIndex()
+    idx.add("user", "hello world")
+    copied = idx.copy()
+    results = copied.search("hello")
+    assert len(results) > 0
+
+
 # ---------------------------------------------------------------------------
 # from_rpc_error — GuardDenied codes
 # ---------------------------------------------------------------------------

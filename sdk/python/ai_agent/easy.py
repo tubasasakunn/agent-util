@@ -357,6 +357,15 @@ class _MessageIndex:
     def all_messages(self) -> list[dict[str, Any]]:
         return list(self._docs)
 
+    def copy(self) -> "_MessageIndex":
+        """現時点のスナップショットを新しいインデックスとして返す。以降の追加は互いに影響しない。"""
+        new = _MessageIndex()
+        new._docs = [dict(d) for d in self._docs]
+        new._tf = [dict(tf) for tf in self._tf]
+        new._idf = dict(self._idf)
+        new._dirty = self._dirty
+        return new
+
 
 # ------------------------------------------------------------------ #
 # Agent — 高レベルエージェント
@@ -697,8 +706,8 @@ class Agent:
             })
             logger.info("[Agent:%s] fork 完了: %d メッセージ転送", self._name, len(history))
 
-        # RAG インデックスもコピー
-        child._index = self._index
+        # RAG インデックスをスナップショットコピー（子への追加が親に漏れないよう独立させる）
+        child._index = self._index.copy()
         return child
 
     async def add(self, other: "Agent") -> None:
@@ -828,13 +837,19 @@ class Agent:
         """
         core = await self._ensure_started()
         queue: asyncio.Queue[str | None] = asyncio.Queue()
+        delta_count = [0]
 
         def _on_delta(text: str, turn: int) -> None:
             queue.put_nowait(text)
+            delta_count[0] += 1
 
         async def _run() -> _AgentResult:
             try:
-                return await core.run(prompt, stream=_on_delta)
+                result = await core.run(prompt, stream=_on_delta)
+                if delta_count[0] == 0:
+                    # streaming 非有効時: 完全レスポンスを1チャンクとしてキューに積む
+                    queue.put_nowait(result.response)
+                return result
             finally:
                 queue.put_nowait(None)  # sentinel でループを終了させる
 
