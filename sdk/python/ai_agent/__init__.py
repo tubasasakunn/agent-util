@@ -30,6 +30,9 @@
 from ai_agent.easy import (
     Agent,
     AgentConfig,
+    GoalJudgeCallable,
+    StatusCallback,
+    StreamCallback,
     Tool,
 )
 
@@ -71,6 +74,9 @@ __all__ = [
     # 高レベル（推奨）
     "Agent",
     "AgentConfig",
+    "GoalJudgeCallable",
+    "StatusCallback",
+    "StreamCallback",
     "Tool",
     # 設定サブクラス
     "CompactionConfig",

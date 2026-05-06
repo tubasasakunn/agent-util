@@ -42,7 +42,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
-from ai_agent.client import Agent as _CoreAgent, AgentResult as _AgentResult
+from ai_agent.client import (
+    Agent as _CoreAgent,
+    AgentResult as _AgentResult,
+    GoalJudgeCallable,
+    StatusCallback,
+    StreamCallback,
+)
 from ai_agent.config import (
     AgentConfig as _CoreConfig,
     CompactionConfig,
@@ -58,7 +64,9 @@ from ai_agent.config import (
     ToolScopeConfig,
     VerifyConfig,
 )
+from ai_agent.guard import get_guard_definition
 from ai_agent.tool import ToolDefinition, _build_parameters
+from ai_agent.verifier import get_verifier_definition
 
 logger = logging.getLogger("ai_agent.easy")
 
@@ -341,23 +349,33 @@ class _MessageIndex:
 class Agent:
     """高レベルエージェント。
 
-    - input(prompt)       : 入力送信・会話蓄積
-    - context()           : LLM による会話要約
-    - fork()              : 子エージェント（会話履歴をコピー）
-    - add(other)          : 他エージェントの履歴を注入
-    - add_summary(other)  : 他エージェントの要約を注入
-    - export()            : 会話状態のシリアライズ
-    - import_history(data): シリアライズ済みデータから復元
-    - branch(n)           : n 番目以降のメッセージで新エージェントを作成
-    - checkpoint()        : 現在状態を dict として保存
-    - restore(cp)         : checkpoint から復元
-    - search(query)       : 過去の会話をキーワード検索（RAG）
-    - batch(prompts)      : 複数プロンプトを並列処理
-    - stream(prompt)      : async generator でストリーミング
-    - register_tools()    : Tool インスタンスの登録
-    - register_skills()   : スキルディレクトリ登録
-    - register_mcp()      : MCP 設定ファイルや dict の登録
-    - improve_tool()      : LLM でツールを改善（動的スキル修正）
+    **会話入力:**
+    - ``input(prompt)``         : 入力送信・会話蓄積。``on_delta`` でストリーミングも可能
+    - ``stream(prompt)``        : async generator でトークンを逐次 yield
+
+    **コンテキスト操作:**
+    - ``context()``             : LLM による会話要約
+    - ``fork()``                : 子エージェント（会話履歴をコピー）
+    - ``add(other)``            : 他エージェントの履歴を末尾に追加
+    - ``add_summary(other)``    : 他エージェントの要約を注入
+    - ``branch(n)``             : n 番目以降のメッセージで新エージェントを作成
+
+    **シリアライズ:**
+    - ``export()``              : 会話状態を dict としてシリアライズ
+    - ``import_history(data)``  : export() データから会話状態を復元
+
+    **登録:**
+    - ``register_tools()``      : Tool インスタンスの登録
+    - ``register_guards()``     : @input_guard / @output_guard / @tool_call_guard の登録
+    - ``register_verifiers()``  : @verifier の登録
+    - ``register_judge()``      : ゴール達成判定器の登録
+    - ``register_skills()``     : スキルディレクトリ登録
+    - ``register_mcp()``        : MCP 設定ファイルや dict の登録
+
+    **ユーティリティ:**
+    - ``search(query)``         : 過去の会話をキーワード検索（RAG）
+    - ``batch(prompts)``        : 複数プロンプトを並列処理
+    - ``improve_tool()``        : LLM でツールの説明を改善（動的スキル修正）
     """
 
     def __init__(
@@ -442,6 +460,43 @@ class Agent:
         logger.info("[Agent:%s] ツール登録: %s", self._name, names)
         return names
 
+    async def register_guards(self, *guards: Any) -> list[str]:
+        """ガードを登録する。
+
+        ``@input_guard`` / ``@tool_call_guard`` / ``@output_guard`` でデコレートした
+        関数をそのまま渡す。
+
+        Returns:
+            登録されたガード名のリスト。
+        """
+        core = await self._ensure_started()
+        names = await core.register_guards(*guards)
+        logger.info("[Agent:%s] ガード登録: %s", self._name, names)
+        return names
+
+    async def register_verifiers(self, *verifiers: Any) -> list[str]:
+        """ベリファイアを登録する。
+
+        ``@verifier`` でデコレートした関数をそのまま渡す。
+
+        Returns:
+            登録されたベリファイア名のリスト。
+        """
+        core = await self._ensure_started()
+        names = await core.register_verifiers(*verifiers)
+        logger.info("[Agent:%s] ベリファイア登録: %s", self._name, names)
+        return names
+
+    async def register_judge(self, name: str, handler: GoalJudgeCallable) -> None:
+        """ゴール達成判定器を登録する。
+
+        ``handler(response: str, turn: int) -> (terminate: bool, reason: str)``
+        の形の callable を渡す。登録後、AgentConfig(judge=JudgeConfig(name=name)) で有効化する。
+        """
+        core = await self._ensure_started()
+        await core.register_judge(name, handler)
+        logger.info("[Agent:%s] judge 登録: %s", self._name, name)
+
     async def register_skills(self, skill_dir: str) -> list[str]:
         """スキルディレクトリを読み込み MCP サーバーとして登録する。"""
         core = await self._ensure_started()
@@ -496,13 +551,22 @@ class Agent:
         prompt: str,
         *,
         max_turns: int | None = None,
-        stream: Callable[[str, int], None] | None = None,
+        on_delta: StreamCallback | None = None,
+        on_status: StatusCallback | None = None,
         timeout: float | None = None,
     ) -> str:
         """エージェントに入力を送信し、レスポンス文字列を返す。
 
         スキル / MCP の内部呼び出しはGoコア側で処理され、
         メインコンテキストには最終応答のみが積まれる。
+
+        Args:
+            prompt: ユーザープロンプト。
+            max_turns: このリクエストのみのターン数上限。省略時は AgentConfig.max_turns を使用。
+            on_delta: ストリーミングチャンクを受け取るコールバック ``(text, turn)``。
+                      ストリーミングを使う場合は AgentConfig(streaming=StreamingConfig(enabled=True)) も必要。
+            on_status: コンテキスト使用状況のコールバック ``(usage_ratio, count, limit)``。
+            timeout: タイムアウト秒数。
         """
         t0 = time.perf_counter()
         core = await self._ensure_started()
@@ -511,7 +575,8 @@ class Agent:
         result = await core.run(
             prompt,
             max_turns=max_turns,
-            stream=stream,
+            stream=on_delta,
+            on_status=on_status,
             timeout=timeout,
         )
         elapsed = time.perf_counter() - t0
@@ -642,14 +707,6 @@ class Agent:
             })
         logger.info("[Agent:%s] branch from=%d: %d メッセージ", self._name, from_index, len(subset))
         return child
-
-    async def checkpoint(self) -> dict[str, Any]:
-        """現在の会話状態を checkpoint として保存する。"""
-        return await self.export()
-
-    async def restore(self, checkpoint: dict[str, Any]) -> None:
-        """checkpoint から会話状態を復元する。"""
-        await self.import_history(checkpoint)
 
     # ---------------------------------------------------------------- #
     # バッチ処理
@@ -815,5 +872,8 @@ class Agent:
 __all__ = [
     "Agent",
     "AgentConfig",
+    "GoalJudgeCallable",
+    "StatusCallback",
+    "StreamCallback",
     "Tool",
 ]
