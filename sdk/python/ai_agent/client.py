@@ -255,7 +255,10 @@ class Agent:
                 defn = get_tool_definition(t)
                 if defn is None:
                     raise AgentError(
-                        f"object {t!r} is not decorated with @tool"
+                        f"Cannot register {t!r} as a tool.\n"
+                        "  Use @tool decorator:    @tool(description='...')\n"
+                        "  Or pass ToolDefinition: ToolDefinition(name=..., func=...)\n"
+                        "  Or use Tool class:      Tool(fn, description='...')"
                     )
             defs.append(defn)
 
@@ -272,7 +275,8 @@ class Agent:
                 defn = get_guard_definition(g)
                 if defn is None:
                     raise AgentError(
-                        f"object {g!r} is not decorated with an @*_guard"
+                        f"Cannot register {g!r} as a guard.\n"
+                        "  Use a guard decorator: @input_guard, @tool_call_guard, or @output_guard"
                     )
             defs.append(defn)
 
@@ -289,7 +293,8 @@ class Agent:
                 defn = get_verifier_definition(v)
                 if defn is None:
                     raise AgentError(
-                        f"object {v!r} is not decorated with @verifier"
+                        f"Cannot register {v!r} as a verifier.\n"
+                        "  Use @verifier decorator: @verifier(description='...')"
                     )
             defs.append(defn)
 

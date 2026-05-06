@@ -71,9 +71,22 @@ class ToolError(AgentError):
 
 
 class GuardDenied(AgentError):
-    """Raised when an input guard denies a prompt or tripwire fires.
+    """Raised when an input guard denies a prompt or a tripwire fires.
 
-    Carries the guard ``decision`` (``"deny"`` or ``"tripwire"``) and ``reason``.
+    Attributes:
+        decision: ``"deny"`` (prompt blocked) or ``"tripwire"`` (alert but
+            the run may have already started; treat as a security event).
+        reason:   Human-readable explanation from the guard implementation.
+
+    Example::
+
+        try:
+            result = await agent.input(user_prompt)
+        except GuardDenied as e:
+            if e.decision == "tripwire":
+                alert_security_team(e.reason)
+            else:
+                return "申し訳ありませんが、そのリクエストはお受けできません。"
     """
 
     def __init__(
@@ -88,6 +101,13 @@ class GuardDenied(AgentError):
         super().__init__(message, code=code, data=data)
         self.decision = decision
         self.reason = reason
+
+    def __str__(self) -> str:
+        base = super().__str__()
+        parts = [f"[{self.decision}] {base}"]
+        if self.reason:
+            parts.append(f"reason: {self.reason}")
+        return " — ".join(parts)
 
 
 # Code -> class mapping used by jsonrpc.py to translate error responses.

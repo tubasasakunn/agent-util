@@ -79,15 +79,27 @@ class JsonRpcClient:
         if env:
             full_env.update(env)
 
-        self._proc = await asyncio.create_subprocess_exec(
-            binary_path,
-            *spawn_args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=full_env,
-            cwd=cwd,
-        )
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                binary_path,
+                *spawn_args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=full_env,
+                cwd=cwd,
+            )
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Agent binary not found: {binary_path!r}\n"
+                "  Build it first:  go build -o agent ./cmd/agent/\n"
+                "  Or pass the correct path via AgentConfig(binary='./path/to/agent')"
+            ) from None
+        except PermissionError:
+            raise PermissionError(
+                f"Agent binary is not executable: {binary_path!r}\n"
+                "  Fix permissions:  chmod +x " + binary_path
+            ) from None
         assert self._proc.stdin is not None and self._proc.stdout is not None
         self._reader = self._proc.stdout
         self._writer = self._proc.stdin
