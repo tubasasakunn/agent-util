@@ -49,8 +49,11 @@ from ai_agent.config import (
     CoordinatorConfig,
     DelegateConfig,
     GuardsConfig,
+    JudgeConfig,
+    LoopConfig,
     PermissionConfig,
     ReminderConfig,
+    RouterConfig,
     StreamingConfig,
     ToolScopeConfig,
     VerifyConfig,
@@ -74,33 +77,77 @@ _M_SESSION_INJECT = "session.inject"
 class AgentConfig:
     """高レベル Agent の統合設定。
 
-    バイナリ起動パラメータとエージェント挙動設定を1つにまとめる。
-    内部では低レベルの _CoreConfig に変換して使用する。
+    バイナリ起動パラメータとエージェント挙動設定を 1 クラスに集約する。
+    これだけ渡せばエージェントが動く、ワンストップ設定クラス。
+
+    必須:
+        binary: コンパイル済みエージェントバイナリのパス（例: "./agent"）
+        env:    LLM接続に必要な環境変数
+                  {"SLLM_ENDPOINT": "http://localhost:8080/v1/chat/completions",
+                   "SLLM_API_KEY": "sk-xxx",
+                   "SLLM_MODEL": "gemma3:4b"}
+
+    クイックスタート::
+
+        config = AgentConfig(
+            binary="./agent",
+            env={"SLLM_ENDPOINT": "http://localhost:8080/v1/chat/completions",
+                 "SLLM_API_KEY": "sk-xxx"},
+            system_prompt="あなたは親切なアシスタントです。",
+            max_turns=20,
+        )
+        async with Agent(config) as agent:
+            reply = await agent.input("こんにちは！")
     """
 
     # --- バイナリ / プロセス設定 ---
     binary: str = "agent"
     """コンパイル済みエージェントバイナリのパス。"""
     env: dict[str, str] | None = None
-    """子プロセスへ追加する環境変数。SLLM_ENDPOINT / SLLM_API_KEY / SLLM_MODEL など。"""
+    """子プロセスへ追加する環境変数。
+    SLLM_ENDPOINT（必須）/ SLLM_API_KEY / SLLM_MODEL を含める。"""
     cwd: str | None = None
-    """子プロセスの作業ディレクトリ。"""
+    """子プロセスの作業ディレクトリ。省略時は呼び出し元のカレントディレクトリ。"""
 
-    # --- エージェント挙動 ---
+    # --- 基本エージェント挙動 ---
     system_prompt: str | None = None
+    """エージェントへのシステムプロンプト。"""
     max_turns: int | None = None
+    """最大ターン数。省略時はコアデフォルト（20）。"""
     token_limit: int | None = None
+    """コンテキストウィンドウのトークン上限。省略時はモデルのデフォルト。"""
     work_dir: str | None = None
+    """エージェントの作業ディレクトリ（ファイル操作のベースパス）。"""
 
+    # --- サブエージェント・ツール機能 ---
     delegate: DelegateConfig | None = None
+    """サブエージェント委任の設定。DelegateConfig(enabled=True) で有効化。"""
     coordinator: CoordinatorConfig | None = None
+    """並列サブエージェントの設定。CoordinatorConfig(enabled=True) で有効化。"""
+
+    # --- コンテキスト・安全性 ---
     compaction: CompactionConfig | None = None
+    """コンテキスト縮約の設定。"""
     permission: PermissionConfig | None = None
+    """ツール実行パーミッションの設定。"""
     guards: GuardsConfig | None = None
+    """入力/ツール呼び出し/出力ガードレールの設定。"""
     verify: VerifyConfig | None = None
+    """ツール実行結果の検証ループ設定。"""
     tool_scope: ToolScopeConfig | None = None
+    """ツールスコーピング（表示するツールの絞り込み）設定。"""
     reminder: ReminderConfig | None = None
+    """長い会話でのシステムリマインダー設定。"""
     streaming: StreamingConfig | None = None
+    """ストリーミング通知の設定。StreamingConfig(enabled=True) で有効化。"""
+
+    # --- ループ・LLM拡張 ---
+    loop: LoopConfig | None = None
+    """実行ループパターンの設定。LoopConfig(type="react") または LoopConfig(type="reaf")。"""
+    router: RouterConfig | None = None
+    """ルーター専用LLMの設定。省略時はメインLLMをルーターにも使用。"""
+    judge: JudgeConfig | None = None
+    """ゴール達成判定器の設定。register_judge() で登録した名前を指定。"""
 
     def _to_core_config(self) -> _CoreConfig:
         return _CoreConfig(
@@ -117,6 +164,9 @@ class AgentConfig:
             tool_scope=self.tool_scope,
             reminder=self.reminder,
             streaming=self.streaming,
+            loop=self.loop,
+            router=self.router,
+            judge=self.judge,
         )
 
 

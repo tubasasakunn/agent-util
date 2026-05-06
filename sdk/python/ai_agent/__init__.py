@@ -1,34 +1,55 @@
 """ai-agent Python SDK.
 
-Thin JSON-RPC client over stdio for the Go-based ai-agent harness.
+高レベル API（推奨）::
 
-Public API:
-
-    from ai_agent import Agent, AgentResult, AgentConfig, tool
+    from ai_agent import Agent, AgentConfig, Tool
     from ai_agent import (
+        DelegateConfig, CoordinatorConfig, CompactionConfig,
         GuardsConfig, PermissionConfig, VerifyConfig,
-        CompactionConfig, StreamingConfig, ReminderConfig,
-        DelegateConfig, CoordinatorConfig, ToolScopeConfig,
+        StreamingConfig, ReminderConfig, ToolScopeConfig,
+        LoopConfig, RouterConfig, JudgeConfig,
     )
-    from ai_agent import (
-        input_guard, tool_call_guard, output_guard, verifier,
+    from ai_agent import AgentError, GuardDenied, ToolError
+
+    config = AgentConfig(
+        binary="./agent",
+        env={"SLLM_ENDPOINT": "http://localhost:8080/v1/chat/completions",
+             "SLLM_API_KEY": "sk-xxx"},
+        system_prompt="あなたは親切なアシスタントです。",
     )
-    from ai_agent import AgentError, AgentBusy, ToolError, GuardDenied
+    async with Agent(config) as agent:
+        reply = await agent.input("こんにちは！")
+
+低レベル API（上級者向け）::
+
+    from ai_agent.client import Agent as RawAgent, AgentResult
+    from ai_agent.config import AgentConfig as CoreAgentConfig
 """
 
-from ai_agent.client import Agent, AgentResult
-from ai_agent.config import (
+# --- 高レベル API（推奨） ---
+from ai_agent.easy import (
+    Agent,
     AgentConfig,
+    Tool,
+)
+
+# --- 設定サブクラス（高・低レベル共用） ---
+from ai_agent.config import (
     CompactionConfig,
     CoordinatorConfig,
     DelegateConfig,
     GuardsConfig,
+    JudgeConfig,
+    LoopConfig,
     PermissionConfig,
     ReminderConfig,
+    RouterConfig,
     StreamingConfig,
     ToolScopeConfig,
     VerifyConfig,
 )
+
+# --- エラー ---
 from ai_agent.errors import (
     AgentAborted,
     AgentBusy,
@@ -36,42 +57,50 @@ from ai_agent.errors import (
     GuardDenied,
     ToolError,
 )
+
+# --- デコレータ / ユーティリティ ---
 from ai_agent.guard import input_guard, output_guard, tool_call_guard
 from ai_agent.tool import tool
 from ai_agent.verifier import verifier
-from ai_agent.easy import (
-    Agent as EasyAgent,
-    AgentConfig as EasyAgentConfig,
-    Tool,
-)
+
+# --- 低レベル API（後方互換・高度な用途向け） ---
+from ai_agent.client import Agent as RawAgent, AgentResult
+from ai_agent.config import AgentConfig as CoreAgentConfig
 
 __all__ = [
+    # 高レベル（推奨）
     "Agent",
-    "AgentResult",
     "AgentConfig",
+    "Tool",
+    # 設定サブクラス
     "CompactionConfig",
     "CoordinatorConfig",
     "DelegateConfig",
     "GuardsConfig",
+    "JudgeConfig",
+    "LoopConfig",
     "PermissionConfig",
     "ReminderConfig",
+    "RouterConfig",
     "StreamingConfig",
     "ToolScopeConfig",
     "VerifyConfig",
+    # エラー
     "AgentError",
     "AgentBusy",
     "AgentAborted",
     "ToolError",
     "GuardDenied",
+    # デコレータ / ユーティリティ
     "tool",
     "input_guard",
     "tool_call_guard",
     "output_guard",
     "verifier",
-    # 高レベル API
-    "EasyAgent",
-    "EasyAgentConfig",
-    "Tool",
+    # 低レベル（後方互換）
+    "RawAgent",
+    "AgentResult",
+    "CoreAgentConfig",
 ]
 
 __version__ = "0.1.0"
