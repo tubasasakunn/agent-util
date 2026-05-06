@@ -158,6 +158,21 @@ class AgentConfig:
     judge: JudgeConfig | None = None
     """ゴール達成判定器の設定。register_judge() で登録した名前を指定。"""
 
+    def __post_init__(self) -> None:
+        if not self.binary:
+            raise ValueError("AgentConfig.binary must be a non-empty string")
+        if self.max_turns is not None and self.max_turns <= 0:
+            raise ValueError("AgentConfig.max_turns must be None or a positive integer")
+
+    def __repr__(self) -> str:
+        sp = self.system_prompt
+        sp_repr = repr(sp[:40] + "...") if sp and len(sp) > 40 else repr(sp)
+        return (
+            f"AgentConfig(binary={self.binary!r}, "
+            f"system_prompt={sp_repr}, "
+            f"max_turns={self.max_turns})"
+        )
+
     def _to_core_config(self) -> _CoreConfig:
         return _CoreConfig(
             max_turns=self.max_turns,
@@ -430,10 +445,17 @@ class Agent:
         return self
 
     async def close(self) -> None:
-        if self._core:
-            logger.info("[Agent:%s] 終了", self._name)
+        if self._core is None:
+            return
+        logger.info("[Agent:%s] 終了", self._name)
+        try:
             await self._core.close()
+        finally:
             self._core = None
+
+    def __repr__(self) -> str:
+        state = "started" if self._core is not None else "not_started"
+        return f"<Agent(name={self._name!r}, state={state})>"
 
     async def __aenter__(self) -> "Agent":
         await self._ensure_started()

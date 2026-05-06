@@ -140,6 +140,33 @@ def test_agent_config_defaults() -> None:
     assert core.system_prompt is None
 
 
+def test_agent_config_validation_empty_binary() -> None:
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="binary"):
+        AgentConfig(binary="")
+
+
+def test_agent_config_validation_zero_max_turns() -> None:
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="max_turns"):
+        AgentConfig(binary="./agent", max_turns=0)
+
+
+def test_agent_config_repr() -> None:
+    cfg = AgentConfig(binary="./agent", system_prompt="hello", max_turns=5)
+    r = repr(cfg)
+    assert "AgentConfig" in r
+    assert "./agent" in r
+    assert "5" in r
+
+
+def test_agent_repr() -> None:
+    cfg = AgentConfig(binary="./agent")
+    agent = Agent(cfg, name="my-agent")
+    assert "my-agent" in repr(agent)
+    assert "not_started" in repr(agent)
+
+
 def test_agent_config_all_fields() -> None:
     cfg = AgentConfig(
         binary="./agent",
