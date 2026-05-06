@@ -78,7 +78,8 @@ def get_verifier_definition(obj: Any) -> VerifierDefinition | None:
 
 
 __all__ = [
-    "verifier",
+    "VerifierCallable",
     "VerifierDefinition",
     "get_verifier_definition",
+    "verifier",
 ]

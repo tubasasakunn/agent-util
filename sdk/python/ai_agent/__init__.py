@@ -63,9 +63,9 @@ from ai_agent.errors import (
 )
 
 # --- デコレータ / ユーティリティ ---
-from ai_agent.guard import input_guard, output_guard, tool_call_guard
+from ai_agent.guard import GuardCallable, GuardDefinition, input_guard, output_guard, tool_call_guard
 from ai_agent.tool import tool
-from ai_agent.verifier import verifier
+from ai_agent.verifier import VerifierCallable, VerifierDefinition, verifier
 
 # --- 低レベル API（後方互換・高度な用途向け） ---
 from ai_agent.client import Agent as RawAgent
@@ -100,10 +100,14 @@ __all__ = [
     "ToolError",
     "GuardDenied",
     # デコレータ / ユーティリティ
-    "tool",
+    "GuardCallable",
+    "GuardDefinition",
+    "VerifierCallable",
+    "VerifierDefinition",
     "input_guard",
-    "tool_call_guard",
     "output_guard",
+    "tool",
+    "tool_call_guard",
     "verifier",
     # 低レベル（後方互換）
     "RawAgent",

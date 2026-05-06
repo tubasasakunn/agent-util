@@ -65,9 +65,9 @@ from ai_agent.config import (
     ToolScopeConfig,
     VerifyConfig,
 )
-from ai_agent.guard import get_guard_definition
+from ai_agent.guard import GuardCallable, GuardDefinition, get_guard_definition
 from ai_agent.tool import ToolDefinition, _build_parameters
-from ai_agent.verifier import get_verifier_definition
+from ai_agent.verifier import VerifierCallable, VerifierDefinition, get_verifier_definition
 
 logger = logging.getLogger("ai_agent.easy")
 
@@ -461,11 +461,13 @@ class Agent:
         logger.info("[Agent:%s] ツール登録: %s", self._name, names)
         return names
 
-    async def register_guards(self, *guards: Any) -> list[str]:
+    async def register_guards(
+        self, *guards: GuardDefinition | GuardCallable
+    ) -> list[str]:
         """ガードを登録する。
 
         ``@input_guard`` / ``@tool_call_guard`` / ``@output_guard`` でデコレートした
-        関数をそのまま渡す。
+        関数または :class:`~ai_agent.guard.GuardDefinition` インスタンスを渡す。
 
         Returns:
             登録されたガード名のリスト。
@@ -475,10 +477,13 @@ class Agent:
         logger.info("[Agent:%s] ガード登録: %s", self._name, names)
         return names
 
-    async def register_verifiers(self, *verifiers: Any) -> list[str]:
+    async def register_verifiers(
+        self, *verifiers: VerifierDefinition | VerifierCallable
+    ) -> list[str]:
         """ベリファイアを登録する。
 
-        ``@verifier`` でデコレートした関数をそのまま渡す。
+        ``@verifier`` でデコレートした関数または
+        :class:`~ai_agent.verifier.VerifierDefinition` インスタンスを渡す。
 
         Returns:
             登録されたベリファイア名のリスト。
