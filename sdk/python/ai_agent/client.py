@@ -379,8 +379,9 @@ class Agent:
         args = params.get("args") or {}
         defn = self._tools.get(name)
         if defn is None:
+            registered = sorted(self._tools)
             return {
-                "content": f"tool not found: {name}",
+                "content": f"tool not found: {name!r} (registered: {registered})",
                 "is_error": True,
             }
         try:
@@ -397,9 +398,10 @@ class Agent:
         stage = params.get("stage", "")
         defn = self._guards.get(name)
         if defn is None or defn.stage != stage:
+            registered = sorted(f"{g.name}/{g.stage}" for g in self._guards.values())
             return {
                 "decision": "deny",
-                "reason": f"guard not found: {name}/{stage}",
+                "reason": f"guard not found: {name!r} stage={stage!r} (registered: {registered})",
             }
         try:
             decision, reason = await defn.call(
@@ -416,7 +418,8 @@ class Agent:
         name = params.get("name", "")
         defn = self._verifiers.get(name)
         if defn is None:
-            return {"passed": False, "summary": f"verifier not found: {name}"}
+            registered = sorted(self._verifiers)
+            return {"passed": False, "summary": f"verifier not found: {name!r} (registered: {registered})"}
         try:
             passed, summary = await defn.call(
                 tool_name=params.get("tool_name", ""),
@@ -431,7 +434,8 @@ class Agent:
         name = params.get("name", "")
         handler = self._judges.get(name)
         if handler is None:
-            return {"terminate": False, "reason": f"judge not found: {name}"}
+            registered = sorted(self._judges)
+            return {"terminate": False, "reason": f"judge not found: {name!r} (registered: {registered})"}
         try:
             response = params.get("response", "")
             turn = int(params.get("turn", 0))
