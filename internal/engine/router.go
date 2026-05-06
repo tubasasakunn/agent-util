@@ -17,6 +17,7 @@ type routerResponse struct {
 
 // routerStep はルーターステップを実行し、ツール選択結果を返す。
 // ルーターはJSON modeでLLMを呼び出し、どのツールを使うか（または使わないか）を判断する。
+// routerCompleter が設定されている場合はそちらを使用する（メインLLMと分離）。
 func (e *Engine) routerStep(ctx context.Context) (*routerResponse, *llm.Usage, error) {
 	msgs := e.buildRouterMessages()
 	req := &llm.ChatRequest{
@@ -24,7 +25,15 @@ func (e *Engine) routerStep(ctx context.Context) (*routerResponse, *llm.Usage, e
 		ResponseFormat: &llm.ResponseFormat{Type: "json_object"},
 	}
 
-	resp, err := e.complete(ctx, req, 0)
+	var resp *llm.ChatResponse
+	var err error
+	if e.routerCompleter != nil {
+		// 専用ルーターLLMが設定されている場合は直接呼び出す（streaming不要）
+		resp, err = e.routerCompleter.ChatCompletion(ctx, req)
+	} else {
+		// デフォルト: e.complete を使う（streaming対応を維持）
+		resp, err = e.complete(ctx, req, 0)
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("router step: %w", err)
 	}
@@ -113,12 +122,18 @@ func routerInstructions() string {
 
 Based on the user's request and conversation history, select the most appropriate tool to use.
 
-Select tool "none" when:
-- You already have enough information to answer (e.g., tool results are already in the conversation)
-- The question can be answered directly without any tool
-- You need to summarize, explain, or respond based on previous tool results
+When to use a tool:
+- Choose the tool listed in ## Available Tools that best matches what the request needs
+- Sub-agent / delegation tools: use when the task is complex, lengthy, or requires an isolated context window
+- Parallel execution tools: use when the user wants MULTIPLE INDEPENDENT subtasks handled concurrently
+- Information / action tools: use when the request requires that specific capability to answer correctly
 
-IMPORTANT: Do NOT use a tool to deliver your answer. Tools are for gathering information only. When you have the information needed, select "none" and the system will generate the response.
+When to select "none":
+- Tool results are already in the conversation and you can now compose the answer
+- The question is simple enough to answer directly without any tool
+- You need to summarize or respond based on existing context
+
+IMPORTANT: Never use a tool to deliver your final answer. Tools gather information only. Once you have what you need, select "none" and the system will generate the response.
 
 You MUST respond with a JSON object in this exact format:
 {"tool": "<tool_name or none>", "arguments": {<tool arguments>}, "reasoning": "<brief explanation>"}

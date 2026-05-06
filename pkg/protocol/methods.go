@@ -24,6 +24,10 @@ const (
 
 	// コンテキスト操作
 	MethodContextSummarize = "context.summarize"
+
+	// ゴール判定（ラッパー → コア登録、コア → ラッパー評価）
+	MethodJudgeRegister = "judge.register"
+	MethodJudgeEvaluate = "judge.evaluate"
 )
 
 // ガードのステージ識別子（GuardDefinition.Stage / GuardExecuteParams.Stage）。
@@ -95,6 +99,30 @@ type AgentConfigureParams struct {
 	ToolScope   *ToolScopeConfig   `json:"tool_scope,omitempty"`
 	Reminder    *ReminderConfig    `json:"reminder,omitempty"`
 	Streaming   *StreamingConfig   `json:"streaming,omitempty"`
+	// ループパターンと拡張コンポーネント
+	Loop   *LoopConfig   `json:"loop,omitempty"`
+	Router *RouterConfig `json:"router,omitempty"`
+	Judge  *JudgeConfig  `json:"judge,omitempty"`
+}
+
+// LoopConfig はエージェントの実行ループパターンを設定する。
+type LoopConfig struct {
+	// Type は "react"（デフォルト）または "reaf"。
+	Type string `json:"type"`
+}
+
+// RouterConfig はルーターステップ専用 LLM の接続設定。
+// 未設定時はメイン LLM（SLLM_ENDPOINT 等）をルーターにも使用する。
+type RouterConfig struct {
+	Endpoint string `json:"endpoint,omitempty"`
+	Model    string `json:"model,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+}
+
+// JudgeConfig は agent.configure でゴール判定器を有効化する設定。
+// Name は judge.register で登録した判定器名を指定する。
+type JudgeConfig struct {
+	Name string `json:"name"`
 }
 
 // DelegateConfig は delegate_task サブエージェントの設定。
@@ -371,4 +399,35 @@ type SessionInjectResult struct {
 type ContextSummarizeResult struct {
 	Summary string `json:"summary"`
 	Length  int    `json:"length"`
+}
+
+// --- judge.register (ラッパー → コア) ---
+
+// JudgeRegisterParams は judge.register のパラメータ。
+// ラッパー側で実装したゴール判定器をコアに登録する。
+// 登録した名前は agent.configure の judge.name から参照できる。
+type JudgeRegisterParams struct {
+	Name string `json:"name"`
+}
+
+// JudgeRegisterResult は judge.register の結果。
+type JudgeRegisterResult struct {
+	Registered int `json:"registered"`
+}
+
+// --- judge.evaluate (コア → ラッパー) ---
+
+// JudgeEvaluateParams は judge.evaluate のパラメータ。
+// コアが各ターンの "completed" 応答後にラッパーへ送信する。
+type JudgeEvaluateParams struct {
+	Name     string `json:"name"`
+	Response string `json:"response"`
+	Turn     int    `json:"turn"`
+}
+
+// JudgeEvaluateResult は judge.evaluate の結果。
+// ラッパーがゴール達成の判定結果を返す。
+type JudgeEvaluateResult struct {
+	Terminate bool   `json:"terminate"`
+	Reason    string `json:"reason,omitempty"`
 }

@@ -465,6 +465,64 @@
           "result": { "name": "null", "value": null }
         }
       ]
+    },
+    {
+      "name": "judge.register",
+      "summary": "Register a goal judge (wrapper-to-core).",
+      "description": "Registers a named goal judge implemented in the wrapper. The name can then be referenced in agent.configure judge.name. The core will call judge.evaluate on this wrapper when goal judgment is needed.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/JudgeRegisterParams" }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": { "$ref": "#/components/schemas/JudgeRegisterResult" }
+      },
+      "examples": [
+        {
+          "name": "register-goal-judge",
+          "params": [
+            {
+              "name": "params",
+              "value": { "name": "my_judge" }
+            }
+          ],
+          "result": { "name": "result", "value": { "registered": 1 } }
+        }
+      ]
+    },
+    {
+      "name": "judge.evaluate",
+      "summary": "Request goal judgment (core-to-wrapper).",
+      "description": "Called by the core after each 'completed' terminal result to ask the wrapper whether the goal has been achieved. The wrapper returns terminate=true to stop the loop, or false to continue.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/JudgeEvaluateParams" }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": { "$ref": "#/components/schemas/JudgeEvaluateResult" }
+      },
+      "examples": [
+        {
+          "name": "goal-reached",
+          "params": [
+            {
+              "name": "params",
+              "value": { "name": "my_judge", "response": "Task complete.", "turn": 3 }
+            }
+          ],
+          "result": { "name": "result", "value": { "terminate": true, "reason": "goal_reached" } }
+        }
+      ]
     }
   ],
   "components": {
@@ -560,7 +618,10 @@
           "verify": { "$ref": "#/components/schemas/VerifyConfig" },
           "tool_scope": { "$ref": "#/components/schemas/ToolScopeConfig" },
           "reminder": { "$ref": "#/components/schemas/ReminderConfig" },
-          "streaming": { "$ref": "#/components/schemas/StreamingConfig" }
+          "streaming": { "$ref": "#/components/schemas/StreamingConfig" },
+          "loop": { "$ref": "#/components/schemas/LoopConfig" },
+          "router": { "$ref": "#/components/schemas/RouterConfig" },
+          "judge": { "$ref": "#/components/schemas/JudgeConfig" }
         }
       },
       "DelegateConfig": {
@@ -666,6 +727,86 @@
         "properties": {
           "enabled": { "type": "boolean" },
           "context_status": { "type": "boolean" }
+        }
+      },
+      "LoopConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/LoopConfig.json",
+        "title": "LoopConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "enum": ["react", "reaf"] }
+        }
+      },
+      "RouterConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/RouterConfig.json",
+        "title": "RouterConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": { "type": "string" },
+          "model": { "type": "string" },
+          "api_key": { "type": "string" }
+        }
+      },
+      "JudgeConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/JudgeConfig.json",
+        "title": "JudgeConfig",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      },
+      "JudgeRegisterParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/JudgeRegisterParams.json",
+        "title": "JudgeRegisterParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      },
+      "JudgeRegisterResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/JudgeRegisterResult.json",
+        "title": "JudgeRegisterResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["registered"],
+        "properties": {
+          "registered": { "type": "integer" }
+        }
+      },
+      "JudgeEvaluateParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/JudgeEvaluateParams.json",
+        "title": "JudgeEvaluateParams",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "response", "turn"],
+        "properties": {
+          "name": { "type": "string" },
+          "response": { "type": "string" },
+          "turn": { "type": "integer" }
+        }
+      },
+      "JudgeEvaluateResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/JudgeEvaluateResult.json",
+        "title": "JudgeEvaluateResult",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["terminate"],
+        "properties": {
+          "terminate": { "type": "boolean" },
+          "reason": { "type": "string" }
         }
       },
       "AgentConfigureResult": {

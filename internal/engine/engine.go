@@ -43,6 +43,10 @@ type Engine struct {
 	streamCallback               StreamCallback
 	contextStatusCallback        ContextStatusCallback
 	skillToolNames               map[string]struct{}
+	// ループパターンと拡張コンポーネント
+	loopType        LoopType
+	routerCompleter llm.Completer // nil なら completer を使用
+	goalJudge       GoalJudge    // nil ならヒューリスティック判定
 }
 
 // New は Engine を生成する。ツール名の重複など設定エラーは error で返す。
@@ -111,6 +115,9 @@ func New(completer llm.Completer, opts ...Option) (*Engine, error) {
 		streamingEnabled:          cfg.streamingEnabled,
 		streamCallback:            cfg.streamCallback,
 		contextStatusCallback:     cfg.contextStatusCallback,
+		loopType:                  cfg.loopType,
+		routerCompleter:           cfg.routerCompleter,
+		goalJudge:                 cfg.goalJudge,
 	}
 
 	// Skills サポートの初期化。
@@ -206,6 +213,15 @@ func (e *Engine) Fork(opts ...Option) *Engine {
 		if vs := e.verifiers.All(); len(vs) > 0 {
 			forkOpts = append(forkOpts, WithVerifiers(vs...))
 		}
+	}
+
+	// ループパターンと拡張コンポーネントを継承
+	forkOpts = append(forkOpts, WithLoopType(e.loopType))
+	if e.routerCompleter != nil {
+		forkOpts = append(forkOpts, WithRouterCompleter(e.routerCompleter))
+	}
+	if e.goalJudge != nil {
+		forkOpts = append(forkOpts, WithGoalJudge(e.goalJudge))
 	}
 
 	// 外部 opts を末尾に追加してオーバーライドを適用
@@ -312,6 +328,21 @@ func (e *Engine) Summarize(ctx context.Context) (string, error) {
 // Completer は LLM クライアントを返す。Engine の再構築で共有する用途。
 func (e *Engine) Completer() llm.Completer {
 	return e.completer
+}
+
+// RouterCompleter はルーター専用 LLM クライアントを返す。未設定時は nil。
+func (e *Engine) RouterCompleter() llm.Completer {
+	return e.routerCompleter
+}
+
+// GoalJudge はゴール判定器を返す。未設定時は nil。
+func (e *Engine) GoalJudge() GoalJudge {
+	return e.goalJudge
+}
+
+// LoopType は現在のループパターンを返す。
+func (e *Engine) LoopType() LoopType {
+	return e.loopType
 }
 
 // LogWriter はログ出力先を返す。Engine の再構築で引き継ぐ用途。
@@ -453,6 +484,20 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 				evt.Response = lr.Message.ContentString()
 			}
 			e.stepCallback(evt)
+		}
+
+		// GoalJudge: "completed" 応答後に外部判定器でゴール達成を確認する。
+		// judge が false を返すとループを継続（fail-open: エラー時は継続）。
+		if lr.Kind == Terminal && lr.Reason == "completed" && e.goalJudge != nil {
+			terminate, judgeReason, judgeErr := e.goalJudge.ShouldTerminate(ctx, lr.Message.ContentString(), turn+1)
+			if judgeErr != nil {
+				e.logf("[judge] error: %v (treating as terminal)", judgeErr)
+			} else if !terminate {
+				e.logf("[judge] not done yet, continuing (turn %d)", turn+1)
+				lr = &LoopResult{Kind: Continue, Reason: "judge_continue", Usage: lr.Usage}
+			} else if judgeReason != "" {
+				lr.Reason = judgeReason
+			}
 		}
 
 		switch lr.Kind {

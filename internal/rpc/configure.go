@@ -6,6 +6,7 @@ import (
 	agentctx "ai-agent/internal/context"
 	"ai-agent/internal/engine"
 	"ai-agent/internal/engine/builtin"
+	"ai-agent/internal/llm"
 	"ai-agent/pkg/protocol"
 )
 
@@ -197,6 +198,45 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 			}))
 		}
 		applied = append(applied, "streaming")
+	}
+
+	if p.Loop != nil && p.Loop.Type != "" {
+		lt, ok := engine.LoopTypeFromString(p.Loop.Type)
+		if !ok {
+			return nil, nil, fmt.Errorf("loop.type: unknown value %q (expected react|reaf)", p.Loop.Type)
+		}
+		opts = append(opts, engine.WithLoopType(lt))
+		applied = append(applied, "loop")
+	}
+
+	if p.Router != nil && p.Router.Endpoint != "" {
+		routerClient := llm.NewClient(
+			llm.WithEndpoint(p.Router.Endpoint),
+			llm.WithModel(p.Router.Model),
+			llm.WithAPIKey(p.Router.APIKey),
+		)
+		opts = append(opts, engine.WithRouterCompleter(routerClient))
+		applied = append(applied, "router")
+	}
+
+	if p.Judge != nil && p.Judge.Name != "" {
+		j, ok := remote.LookupGoalJudge(p.Judge.Name)
+		if !ok {
+			return nil, nil, fmt.Errorf("judge.name: %q not registered (call judge.register first)", p.Judge.Name)
+		}
+		opts = append(opts, engine.WithGoalJudge(j))
+		applied = append(applied, "judge")
+	}
+
+	// routerCompleter / goalJudge / loopType を引き継ぐ（configure で未指定の場合）
+	if p.Router == nil && prev.RouterCompleter() != nil {
+		opts = append(opts, engine.WithRouterCompleter(prev.RouterCompleter()))
+	}
+	if p.Judge == nil && prev.GoalJudge() != nil {
+		opts = append(opts, engine.WithGoalJudge(prev.GoalJudge()))
+	}
+	if p.Loop == nil {
+		opts = append(opts, engine.WithLoopType(prev.LoopType()))
 	}
 
 	tools := prev.Tools()

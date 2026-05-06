@@ -38,9 +38,14 @@ _M_GUARD_EXECUTE = "guard.execute"
 _M_VERIFIER_REGISTER = "verifier.register"
 _M_VERIFIER_EXECUTE = "verifier.execute"
 _M_CONTEXT_SUMMARIZE = "context.summarize"
+_M_JUDGE_REGISTER = "judge.register"
+_M_JUDGE_EVALUATE = "judge.evaluate"
 _N_STREAM_DELTA = "stream.delta"
 _N_STREAM_END = "stream.end"
 _N_CONTEXT_STATUS = "context.status"
+
+# GoalJudge callable type: (response: str, turn: int) -> (terminate: bool, reason: str)
+GoalJudgeCallable = Callable[[str, int], Any]
 
 
 @dataclass
@@ -101,6 +106,7 @@ class Agent:
         self._tools: dict[str, ToolDefinition] = {}
         self._guards: dict[str, GuardDefinition] = {}
         self._verifiers: dict[str, VerifierDefinition] = {}
+        self._judges: dict[str, GoalJudgeCallable] = {}
 
         self._on_status: StatusCallback | None = None
 
@@ -291,6 +297,18 @@ class Agent:
             defs, self._verifiers, _M_VERIFIER_REGISTER, "verifiers"
         )
 
+    async def register_judge(self, name: str, handler: GoalJudgeCallable) -> None:
+        """Register a goal-judge callable under *name*.
+
+        *handler* receives ``(response: str, turn: int)`` and must return
+        ``(terminate: bool, reason: str)`` — sync or async.
+
+        After registration call ``configure(AgentConfig(judge=JudgeConfig(name=name)))``
+        to activate it.
+        """
+        self._judges[name] = handler
+        await self._rpc.call(_M_JUDGE_REGISTER, {"name": name})
+
     async def register_mcp(
         self,
         command: str | None = None,
@@ -328,6 +346,7 @@ class Agent:
         self._rpc.set_request_handler(
             _M_VERIFIER_EXECUTE, self._handle_verifier_execute
         )
+        self._rpc.set_request_handler(_M_JUDGE_EVALUATE, self._handle_judge_evaluate)
 
         self._rpc.set_notification_handler(_N_STREAM_DELTA, self._handle_stream_delta)
         self._rpc.set_notification_handler(_N_STREAM_END, self._handle_stream_end)
@@ -387,6 +406,22 @@ class Agent:
         except Exception as exc:  # noqa: BLE001
             return {"passed": False, "summary": f"verifier error: {exc}"}
         return {"passed": passed, "summary": summary}
+
+    async def _handle_judge_evaluate(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = params.get("name", "")
+        handler = self._judges.get(name)
+        if handler is None:
+            return {"terminate": False, "reason": f"judge not found: {name}"}
+        try:
+            response = params.get("response", "")
+            turn = int(params.get("turn", 0))
+            ret = handler(response, turn)
+            if asyncio.iscoroutine(ret):
+                ret = await ret
+            terminate, reason = ret
+        except Exception as exc:  # noqa: BLE001
+            return {"terminate": False, "reason": f"judge error: {exc}"}
+        return {"terminate": bool(terminate), "reason": str(reason)}
 
     async def _handle_stream_delta(self, params: dict[str, Any]) -> None:
         cb = self._stream_cb

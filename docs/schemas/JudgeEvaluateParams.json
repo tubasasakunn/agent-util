@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/JudgeEvaluateParams.json",
+  "title": "JudgeEvaluateParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "response", "turn"],
+  "properties": {
+    "name": { "type": "string" },
+    "response": { "type": "string" },
+    "turn": { "type": "integer" }
+  }
+}

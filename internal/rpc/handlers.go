@@ -47,6 +47,7 @@ func (h *Handlers) RegisterAll() {
 	h.server.Handle(protocol.MethodMCPRegister, h.handleMCPRegister)
 	h.server.Handle(protocol.MethodGuardRegister, h.handleGuardRegister)
 	h.server.Handle(protocol.MethodVerifierRegister, h.handleVerifierRegister)
+	h.server.Handle(protocol.MethodJudgeRegister, h.handleJudgeRegister)
 	// セッション管理・コンテキスト操作
 	h.server.Handle(protocol.MethodSessionHistory, h.handleSessionHistory)
 	h.server.Handle(protocol.MethodSessionInject, h.handleSessionInject)
@@ -291,6 +292,23 @@ func (h *Handlers) handleVerifierRegister(_ context.Context, params json.RawMess
 	}
 
 	return protocol.VerifierRegisterResult{Registered: registered}, nil
+}
+
+func (h *Handlers) handleJudgeRegister(_ context.Context, params json.RawMessage) (any, *protocol.RPCError) {
+	p, rpcErr := unmarshalParams[protocol.JudgeRegisterParams](params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+
+	if p.Name == "" {
+		return nil, &protocol.RPCError{
+			Code:    protocol.ErrCodeInvalidParams,
+			Message: "judge name must not be empty",
+		}
+	}
+
+	h.remote.AddGoalJudge(NewRemoteGoalJudge(p.Name, h.server))
+	return protocol.JudgeRegisterResult{Registered: 1}, nil
 }
 
 // handleSessionHistory は現在の会話履歴を返す。

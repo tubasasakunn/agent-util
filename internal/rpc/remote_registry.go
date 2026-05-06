@@ -6,8 +6,8 @@ import (
 	"ai-agent/internal/engine"
 )
 
-// RemoteRegistry は guard.register / verifier.register でラッパーから登録された
-// 名前付きガード/Verifier を保持する。configure 時に builtin で名前解決できなかった
+// RemoteRegistry は guard.register / verifier.register / judge.register でラッパーから登録された
+// 名前付きガード/Verifier/GoalJudge を保持する。configure 時に builtin で名前解決できなかった
 // ものをここから引いてフォールバックする。
 type RemoteRegistry struct {
 	mu             sync.RWMutex
@@ -15,6 +15,7 @@ type RemoteRegistry struct {
 	toolCallGuards map[string]engine.ToolCallGuard
 	outputGuards   map[string]engine.OutputGuard
 	verifiers      map[string]engine.Verifier
+	goalJudges     map[string]engine.GoalJudge
 }
 
 // NewRemoteRegistry は空の RemoteRegistry を生成する。
@@ -24,6 +25,7 @@ func NewRemoteRegistry() *RemoteRegistry {
 		toolCallGuards: make(map[string]engine.ToolCallGuard),
 		outputGuards:   make(map[string]engine.OutputGuard),
 		verifiers:      make(map[string]engine.Verifier),
+		goalJudges:     make(map[string]engine.GoalJudge),
 	}
 }
 
@@ -85,4 +87,19 @@ func (r *RemoteRegistry) LookupVerifier(name string) (engine.Verifier, bool) {
 	defer r.mu.RUnlock()
 	v, ok := r.verifiers[name]
 	return v, ok
+}
+
+// AddGoalJudge は名前付き GoalJudge を登録する（既存の同名は上書き）。
+func (r *RemoteRegistry) AddGoalJudge(j engine.GoalJudge) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.goalJudges[j.(interface{ Name() string }).Name()] = j
+}
+
+// LookupGoalJudge は名前から GoalJudge を解決する。未登録時は (nil, false)。
+func (r *RemoteRegistry) LookupGoalJudge(name string) (engine.GoalJudge, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	j, ok := r.goalJudges[name]
+	return j, ok
 }

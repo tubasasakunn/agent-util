@@ -136,6 +136,39 @@ class StreamingConfig:
 
 
 @dataclass
+class LoopConfig:
+    """Loop pattern config.
+
+    type: "react" (default) | "reaf"
+    """
+
+    type: str = "react"
+
+
+@dataclass
+class RouterConfig:
+    """Router-dedicated LLM config.
+
+    When set, the router step uses a separate LLM endpoint instead of the
+    main SLLM. Useful for assigning a lightweight model to tool selection.
+    """
+
+    endpoint: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+
+
+@dataclass
+class JudgeConfig:
+    """Goal-judge activation config.
+
+    name must match a judge registered via ``register_judge(name, handler)``.
+    """
+
+    name: str = ""
+
+
+@dataclass
 class AgentConfig:
     """Top-level configuration for ``agent.configure``.
 
@@ -156,6 +189,9 @@ class AgentConfig:
     tool_scope: ToolScopeConfig | None = None
     reminder: ReminderConfig | None = None
     streaming: StreamingConfig | None = None
+    loop: LoopConfig | None = None
+    router: RouterConfig | None = None
+    judge: JudgeConfig | None = None
 
     def to_params(self) -> dict[str, Any]:
         """Convert to the JSON-RPC ``params`` dict (omitempty-style).
@@ -179,6 +215,9 @@ __all__ = [
     "ToolScopeConfig",
     "ReminderConfig",
     "StreamingConfig",
+    "LoopConfig",
+    "RouterConfig",
+    "JudgeConfig",
 ]
 # 'fields' / 'field' re-exported for downstream tests if useful.
 _ = (fields, field)

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/JudgeEvaluateResult.json",
+  "title": "JudgeEvaluateResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["terminate"],
+  "properties": {
+    "terminate": { "type": "boolean" },
+    "reason": { "type": "string" }
+  }
+}

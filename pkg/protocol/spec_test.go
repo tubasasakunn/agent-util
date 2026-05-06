@@ -73,6 +73,8 @@ func expectedMethods() []string {
 		MethodStreamDelta,
 		MethodStreamEnd,
 		MethodContextStatus,
+		MethodJudgeRegister,
+		MethodJudgeEvaluate,
 	}
 }
 
@@ -141,6 +143,8 @@ func methodSchemaName() map[string]string {
 		MethodStreamDelta:      "StreamDeltaParams",
 		MethodStreamEnd:        "StreamEndParams",
 		MethodContextStatus:    "ContextStatusParams",
+		MethodJudgeRegister:    "JudgeRegisterParams",
+		MethodJudgeEvaluate:    "JudgeEvaluateParams",
 	}
 }
 
@@ -160,6 +164,8 @@ func goTypes() map[string]reflect.Type {
 		"StreamDeltaParams":      reflect.TypeOf(StreamDeltaParams{}),
 		"StreamEndParams":        reflect.TypeOf(StreamEndParams{}),
 		"ContextStatusParams":    reflect.TypeOf(ContextStatusParams{}),
+		"JudgeRegisterParams":    reflect.TypeOf(JudgeRegisterParams{}),
+		"JudgeEvaluateParams":    reflect.TypeOf(JudgeEvaluateParams{}),
 	}
 }
 

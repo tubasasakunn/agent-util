@@ -4,6 +4,7 @@ import (
 	"io"
 
 	agentctx "ai-agent/internal/context"
+	"ai-agent/internal/llm"
 	"ai-agent/pkg/tool"
 )
 
@@ -41,6 +42,10 @@ type engineConfig struct {
 	streamCallback         StreamCallback
 	contextStatusCallback  ContextStatusCallback
 	skillsDirs             []string
+	// ループパターンと拡張コンポーネント
+	loopType        LoopType
+	routerCompleter llm.Completer
+	goalJudge       GoalJudge
 }
 
 // StepEvent はエージェントループの各ステップ完了時に発火するイベント。
@@ -289,4 +294,24 @@ func WithSkills(dirs ...string) Option {
 	return func(c *engineConfig) {
 		c.skillsDirs = append(c.skillsDirs, dirs...)
 	}
+}
+
+// WithLoopType はエージェントの実行ループパターンを設定する。
+// デフォルトは LoopTypeReAct。
+func WithLoopType(t LoopType) Option {
+	return func(c *engineConfig) { c.loopType = t }
+}
+
+// WithRouterCompleter はルーターステップ専用の LLM クライアントを設定する。
+// 未設定の場合はメインの completer をルーターにも使用する（現状の動作）。
+// 軽量モデルをツール選択に割り当て、メインモデルを応答生成に専念させる場合に使う。
+func WithRouterCompleter(c llm.Completer) Option {
+	return func(cfg *engineConfig) { cfg.routerCompleter = c }
+}
+
+// WithGoalJudge はゴール達成判定器を設定する。
+// 各ターンの "completed" 応答後に呼ばれ、false を返すとループを継続する。
+// 未設定の場合はヒューリスティック（LLM が "none" を選択した時点で完了）を使用する。
+func WithGoalJudge(j GoalJudge) Option {
+	return func(c *engineConfig) { c.goalJudge = j }
 }
