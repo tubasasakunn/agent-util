@@ -12,7 +12,7 @@ Tool interface とスキーマ定義。
 
 ## Tool interface
 
-統一契約の5項目を満たすinterfaceを定義する。
+統一契約の4項目を満たすinterfaceを定義する。
 
 ```go
 type Tool interface {
@@ -22,8 +22,7 @@ type Tool interface {
     Parameters() json.RawMessage // JSON Schema
 
     // 振る舞い宣言
-    IsReadOnly() bool
-    IsConcurrencySafe() bool
+    IsReadOnly() bool // true なら副作用なし（パーミッション判定に使用）
 
     // 実行
     Execute(ctx context.Context, args json.RawMessage) (Result, error)
@@ -38,7 +37,6 @@ type Result struct {
 
 ## 設計原則
 
-- **fail-closed**: `IsConcurrencySafe()` のデフォルトは false（安全側）
 - **最小インターフェース**: ツール実装者が最低限満たすべきメソッドだけを含む
 - **JSON Schemaによるパラメータ定義**: 引数のバリデーションはハーネス側で行う
 

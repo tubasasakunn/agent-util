@@ -44,7 +44,4 @@ func TestEcho_Metadata(t *testing.T) {
 	if !tool.IsReadOnly() {
 		t.Error("should be read-only")
 	}
-	if !tool.IsConcurrencySafe() {
-		t.Error("should be concurrency-safe")
-	}
 }

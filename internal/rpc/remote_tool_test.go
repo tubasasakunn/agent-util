@@ -35,9 +35,6 @@ func TestRemoteTool_Metadata(t *testing.T) {
 	if !rt.IsReadOnly() {
 		t.Error("IsReadOnly() = false, want true")
 	}
-	if rt.IsConcurrencySafe() {
-		t.Error("IsConcurrencySafe() = true, want false")
-	}
 }
 
 func TestRemoteTool_Execute(t *testing.T) {

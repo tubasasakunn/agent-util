@@ -15,8 +15,7 @@ func New() *Tool { return &Tool{} }
 
 func (t *Tool) Name() string            { return "echo" }
 func (t *Tool) Description() string     { return "Echoes back the provided message. Useful for testing." }
-func (t *Tool) IsReadOnly() bool        { return true }
-func (t *Tool) IsConcurrencySafe() bool { return true }
+func (t *Tool) IsReadOnly() bool { return true }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{

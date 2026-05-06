@@ -23,9 +23,6 @@ func TestAsTool_Interface(t *testing.T) {
 	if !tl.IsReadOnly() {
 		t.Error("IsReadOnly() should be true")
 	}
-	if !tl.IsConcurrencySafe() {
-		t.Error("IsConcurrencySafe() should be true")
-	}
 
 	// Parameters は空オブジェクト
 	var params map[string]any

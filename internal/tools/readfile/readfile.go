@@ -18,8 +18,7 @@ func New() *Tool { return &Tool{} }
 
 func (t *Tool) Name() string            { return "read_file" }
 func (t *Tool) Description() string     { return "Reads the contents of a file at the specified path." }
-func (t *Tool) IsReadOnly() bool        { return true }
-func (t *Tool) IsConcurrencySafe() bool { return true }
+func (t *Tool) IsReadOnly() bool { return true }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
