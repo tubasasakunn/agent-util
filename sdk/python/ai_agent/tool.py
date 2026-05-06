@@ -14,6 +14,8 @@ Mapping (PEP 604 unions are also handled):
 * ``list``/``list[T]``  -> ``{"type": "array", "items": <T schema>}``
 * ``dict``/``dict[...]``-> ``{"type": "object"}``
 * ``None``              -> ``{"type": "null"}``
+* ``Literal["a","b"]``  -> ``{"type": "string", "enum": ["a", "b"]}``
+* ``Enum`` subclass     -> ``{"type": "string", "enum": [<member values>]}``
 * ``X | None`` (Optional)-> base schema for X; field is dropped from ``required``.
 * anything else         -> ``{}`` (open schema; the core will pass through)
 """
@@ -21,11 +23,12 @@ Mapping (PEP 604 unions are also handled):
 from __future__ import annotations
 
 import asyncio
+import enum
 import inspect
 import types
 import typing
 from dataclasses import dataclass, field
-from typing import Any, Callable, get_args, get_origin
+from typing import Any, Callable, Literal, get_args, get_origin
 
 
 # --- JSON-Schema mapping ----------------------------------------------------
@@ -102,6 +105,39 @@ def annotation_to_schema(annotation: Any) -> dict[str, Any]:
         return {"type": "array"}
     if annotation is dict:
         return {"type": "object"}
+
+    # Literal["a", "b", ...] – derive enum type from the first value.
+    if origin is Literal:
+        values = list(get_args(annotation))
+        if not values:
+            return {}
+        # Determine JSON type from the first literal value.
+        first = values[0]
+        if isinstance(first, bool):
+            json_type = "boolean"
+        elif isinstance(first, int):
+            json_type = "integer"
+        elif isinstance(first, float):
+            json_type = "number"
+        else:
+            json_type = "string"
+        return {"type": json_type, "enum": values}
+
+    # Enum subclasses – use member values.
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        values = [m.value for m in annotation]
+        if not values:
+            return {}
+        first = values[0]
+        if isinstance(first, bool):
+            json_type = "boolean"
+        elif isinstance(first, int):
+            json_type = "integer"
+        elif isinstance(first, float):
+            json_type = "number"
+        else:
+            json_type = "string"
+        return {"type": json_type, "enum": values}
 
     # Unknown/complex types: open schema (the wrapper will pass args through).
     return {}
