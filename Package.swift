@@ -15,6 +15,8 @@ let package = Package(
     name: "AIAgent",
     platforms: [
         .macOS(.v13),
+        .iOS(.v16),
+        .macCatalyst(.v16),
     ],
     products: [
         .library(name: "AIAgent", targets: ["AIAgent"]),

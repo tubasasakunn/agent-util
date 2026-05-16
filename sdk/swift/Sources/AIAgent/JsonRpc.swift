@@ -87,7 +87,11 @@ actor JsonRpcState {
 /// `connectSubprocess(...)` でGoバイナリ (`agent --rpc`) を起動し、stdin/stdoutで通信する。
 public final class JsonRpcClient: @unchecked Sendable {
     private let state = JsonRpcState()
-    private var process: Process?
+    // `Process` 型は iOS には存在せず、Mac Catalyst では @available(unavailable) で
+    // マークされる。共通コードとして AnyObject で保持し、操作は KVC / NSInvocation
+    // 経由で行うことで、macOS / Mac Catalyst / iOS の 3 プラットフォームすべてで
+    // コンパイルを通す (iOS では connectSubprocess が実行時に失敗する)。
+    private var process: AnyObject?
     private var stdin: FileHandle?
     private var stdout: FileHandle?
     private var stderr: FileHandle?
@@ -106,29 +110,40 @@ public final class JsonRpcClient: @unchecked Sendable {
         env: [String: String]? = nil,
         cwd: String? = nil
     ) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binaryPath)
-        process.arguments = args
+        // Process / NSTask クラスをランタイムで取得 (iOS には存在しない)。
+        guard let cls = NSClassFromString("NSTask") as? NSObject.Type
+            ?? NSClassFromString("NSConcreteTask") as? NSObject.Type else {
+            throw AgentError(
+                "Subprocess support is unavailable on this platform "
+                + "(NSTask not present). ai-agent requires macOS or Mac Catalyst."
+            )
+        }
 
-        // 環境変数: 親環境にマージ。
         var fullEnv = ProcessInfo.processInfo.environment
         if let env = env {
             for (k, v) in env { fullEnv[k] = v }
-        }
-        process.environment = fullEnv
-        if let cwd = cwd {
-            process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         }
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+
+        // Mac Catalyst では Process.executableURL / currentDirectoryURL / run() が
+        // @available(macCatalyst, unavailable) でマークされているため、Swift の
+        // 可用性チェックを回避して Objective-C ランタイム経由で呼び出す。
+        let process: NSObject = cls.init()
+        process.setValue(URL(fileURLWithPath: binaryPath), forKey: "executableURL")
+        process.setValue(args, forKey: "arguments")
+        process.setValue(fullEnv, forKey: "environment")
+        if let cwd = cwd {
+            process.setValue(URL(fileURLWithPath: cwd), forKey: "currentDirectoryURL")
+        }
+        process.setValue(stdinPipe, forKey: "standardInput")
+        process.setValue(stdoutPipe, forKey: "standardOutput")
+        process.setValue(stderrPipe, forKey: "standardError")
 
         do {
-            try process.run()
+            try runProcessViaRuntime(process)
         } catch CocoaError.fileNoSuchFile {
             throw AgentError(
                 "Agent binary not found: \(binaryPath)\n"
@@ -147,6 +162,27 @@ public final class JsonRpcClient: @unchecked Sendable {
         startStderrLoop()
     }
 
+    /// NSTask の `launchAndReturnError:` を ObjC ランタイム経由で呼ぶ。
+    private func runProcessViaRuntime(_ process: NSObject) throws {
+        let sel = Selector(("launchAndReturnError:"))
+        if process.responds(to: sel),
+           let method = class_getInstanceMethod(type(of: process), sel) {
+            typealias LaunchFn = @convention(c) (
+                AnyObject, Selector, AutoreleasingUnsafeMutablePointer<NSError?>
+            ) -> Bool
+            let imp = method_getImplementation(method)
+            let fn = unsafeBitCast(imp, to: LaunchFn.self)
+            var nsErr: NSError? = nil
+            if !fn(process, sel, &nsErr) {
+                if let e = nsErr { throw e }
+                throw AgentError("launchAndReturnError: failed")
+            }
+            return
+        }
+        // 古い launch() にフォールバック (返り値なし)
+        process.perform(Selector(("launch")))
+    }
+
     public func close() async {
         // stdinを閉じてピアにEOFを伝える。
         if let stdin = stdin {
@@ -159,13 +195,13 @@ public final class JsonRpcClient: @unchecked Sendable {
             _ = await withTimeoutOrNil(seconds: 5.0) {
                 await self.waitForExit(process)
             }
-            if process.isRunning {
-                process.terminate()
+            if Self.processIsRunning(process) {
+                _ = process.perform(Selector(("terminate")))
                 _ = await withTimeoutOrNil(seconds: 2.0) {
                     await self.waitForExit(process)
                 }
-                if process.isRunning {
-                    process.interrupt()
+                if Self.processIsRunning(process) {
+                    _ = process.perform(Selector(("interrupt")))
                     _ = await withTimeoutOrNil(seconds: 1.0) {
                         await self.waitForExit(process)
                     }
@@ -183,13 +219,17 @@ public final class JsonRpcClient: @unchecked Sendable {
     }
 
     /// Blocking `process.waitUntilExit()` を別スレッドに逃がして async から待つ。
-    private func waitForExit(_ process: Process) async {
+    private func waitForExit(_ process: AnyObject) async {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             DispatchQueue.global().async {
-                process.waitUntilExit()
+                _ = process.perform(Selector(("waitUntilExit")))
                 cont.resume()
             }
         }
+    }
+
+    private static func processIsRunning(_ process: AnyObject) -> Bool {
+        (process.value(forKey: "isRunning") as? Bool) ?? false
     }
 
     public var stderrOutput: String {
