@@ -30,6 +30,12 @@ sdk/js-browser/coverage/
 sdk/js-browser/*.tsbuildinfo
 sdk/js-browser/package-lock.json
 
+# Swift SDK build / cache artifacts
+sdk/swift/.build/
+sdk/swift/.swiftpm/
+sdk/swift/Package.resolved
+sdk/swift/*.xcodeproj/
+
 # Browser demo build / cache artifacts
 examples/browser/node_modules/
 examples/browser/dist/

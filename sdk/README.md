@@ -7,6 +7,7 @@ Wrappers around the `ai-agent` agent loop. Three SDKs are available and pick a d
 | Python   | `ai-agent` (local)     | [`./python/`](./python/)   | Subprocess: `agent --rpc` over stdio      |
 | TypeScript (Node) | `@ai-agent/sdk`     | [`./js/`](./js/)           | Subprocess: `agent --rpc` over stdio      |
 | TypeScript (Browser) | `@ai-agent/browser` | [`./js-browser/`](./js-browser/) | In-page; LLM via WebLLM (WebGPU)   |
+| Swift    | `AIAgent` (SwiftPM)    | [`./swift/`](./swift/)     | Subprocess: `agent --rpc` over stdio      |
 
 ## Which SDK should I use?
 
