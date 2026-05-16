@@ -29,6 +29,7 @@ Core-to-wrapper (request/response):
 - [tool.execute](./methods/tool.execute.md) — invoke a wrapper-side tool
 - [guard.execute](./methods/guard.execute.md) — invoke a wrapper-side guard
 - [verifier.execute](./methods/verifier.execute.md) — invoke a wrapper-side verifier
+- [llm.execute](./methods/llm.execute.md) — delegate a `ChatCompletion` to the wrapper (when `llm.mode="remote"`)
 
 Core-to-wrapper (notifications):
 

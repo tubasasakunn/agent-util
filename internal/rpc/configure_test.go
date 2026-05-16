@@ -395,6 +395,57 @@ func TestHandlers_AgentConfigure_RemoteVerifierNameResolves(t *testing.T) {
 	}
 }
 
+func TestHandlers_AgentConfigure_LLMRemoteSwapsCompleter(t *testing.T) {
+	h := newTestHandlers(t, &testCompleter{})
+	prevCompleter := h.Engine().Completer()
+	if _, isRemote := prevCompleter.(*RemoteCompleter); isRemote {
+		t.Fatal("initial completer should not be RemoteCompleter")
+	}
+
+	cfg := mustJSON(t, protocol.AgentConfigureParams{
+		LLM: &protocol.LLMConfig{Mode: protocol.LLMModeRemote, TimeoutSeconds: 10},
+	})
+	res, rpcErr := h.handleAgentConfigure(context.Background(), cfg)
+	if rpcErr != nil {
+		t.Fatalf("configure: %+v", rpcErr)
+	}
+	if r := res.(protocol.AgentConfigureResult); !equalStringSlices(r.Applied, []string{"llm"}) {
+		t.Errorf("Applied = %v, want [llm]", r.Applied)
+	}
+	if _, isRemote := h.Engine().Completer().(*RemoteCompleter); !isRemote {
+		t.Errorf("completer = %T, want *RemoteCompleter", h.Engine().Completer())
+	}
+}
+
+func TestHandlers_AgentConfigure_LLMHTTPKeepsCompleter(t *testing.T) {
+	h := newTestHandlers(t, &testCompleter{})
+	prevCompleter := h.Engine().Completer()
+
+	cfg := mustJSON(t, protocol.AgentConfigureParams{
+		LLM: &protocol.LLMConfig{Mode: protocol.LLMModeHTTP},
+	})
+	if _, rpcErr := h.handleAgentConfigure(context.Background(), cfg); rpcErr != nil {
+		t.Fatalf("configure: %+v", rpcErr)
+	}
+	if h.Engine().Completer() != prevCompleter {
+		t.Error("http mode should keep the existing completer")
+	}
+}
+
+func TestHandlers_AgentConfigure_LLMUnknownMode(t *testing.T) {
+	h := newTestHandlers(t, &testCompleter{})
+	cfg := mustJSON(t, protocol.AgentConfigureParams{
+		LLM: &protocol.LLMConfig{Mode: "bogus"},
+	})
+	_, rpcErr := h.handleAgentConfigure(context.Background(), cfg)
+	if rpcErr == nil {
+		t.Fatal("expected error for unknown llm.mode")
+	}
+	if !strings.Contains(rpcErr.Message, "bogus") {
+		t.Errorf("error should mention mode, got %q", rpcErr.Message)
+	}
+}
+
 func TestHandlers_AgentConfigure_UnknownRemoteName(t *testing.T) {
 	h := newTestHandlers(t, &testCompleter{})
 

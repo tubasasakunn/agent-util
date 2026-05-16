@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/LLMExecuteResult.json",
+  "title": "LLMExecuteResult",
+  "description": "Reverse RPC result (wrapper -> core). Carries an OpenAI-compatible ChatResponse the wrapper produced from any backend.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["response"],
+  "properties": {
+    "response": {
+      "type": "object",
+      "description": "Opaque OpenAI-compatible ChatResponse payload. Must include choices[0].message.content or tool_calls.",
+      "additionalProperties": true
+    }
+  }
+}

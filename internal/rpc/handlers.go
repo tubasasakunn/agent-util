@@ -180,7 +180,7 @@ func (h *Handlers) handleAgentConfigure(ctx context.Context, params json.RawMess
 
 	h.engMu.Lock()
 	defer h.engMu.Unlock()
-	newEng, applied, err := rebuildEngine(h.eng, &p, h.notifier, h.remote)
+	newEng, applied, err := rebuildEngine(h.eng, &p, h.notifier, h.remote, h.server)
 	if err != nil {
 		return nil, &protocol.RPCError{
 			Code:    protocol.ErrCodeInvalidParams,

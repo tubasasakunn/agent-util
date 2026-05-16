@@ -169,6 +169,20 @@ class JudgeConfig:
 
 
 @dataclass
+class LLMConfig:
+    """Main LLM driver config (docs/schemas/LLMConfig.json).
+
+    ``mode="remote"`` delegates every ChatCompletion to the wrapper via the
+    ``llm.execute`` reverse RPC. Use it to plug in any backend (Anthropic,
+    Bedrock, ollama, mock, ...). Register the handler with
+    :meth:`Agent.set_llm_handler` before calling ``configure``.
+    """
+
+    mode: Literal["http", "remote"] | None = None
+    timeout_seconds: int | None = None
+
+
+@dataclass
 class AgentConfig:
     """Top-level configuration for ``agent.configure``.
 
@@ -192,6 +206,7 @@ class AgentConfig:
     loop: LoopConfig | None = None
     router: RouterConfig | None = None
     judge: JudgeConfig | None = None
+    llm: LLMConfig | None = None
 
     def to_params(self) -> dict[str, Any]:
         """Convert to the JSON-RPC ``params`` dict (omitempty-style).
@@ -218,6 +233,7 @@ __all__ = [
     "LoopConfig",
     "RouterConfig",
     "JudgeConfig",
+    "LLMConfig",
 ]
 # 'fields' / 'field' re-exported for downstream tests if useful.
 _ = (fields, field)

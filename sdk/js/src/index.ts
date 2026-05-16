@@ -14,6 +14,7 @@ export {
   type StreamCallback,
   type StatusCallback,
   type StreamEvent,
+  type LLMHandler,
 } from './client.js';
 
 export {
@@ -56,6 +57,7 @@ export type {
   DelegateConfig,
   CoordinatorConfig,
   ToolScopeConfig,
+  LLMConfig,
 } from './config.js';
 
 export { configToParams, stripUndefined } from './config.js';

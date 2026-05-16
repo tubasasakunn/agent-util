@@ -236,6 +236,11 @@ interface Completer {
 任意の `Completer` を自前実装すれば、OpenAI 直叩き / プロキシサーバ経由 /
 拡張機能の Native Messaging 経由など何でも繋がる。
 
+> Node / Python / Swift SDK には Go コアの LLM 呼び出しをラッパー側に委譲する
+> `llm.execute` 逆 RPC 機構 (ADR-016) があるが、Browser SDK は最初からこの
+> `Completer` interface で同じ自由度を実現している (Go コアを使わない
+> スタンドアロン構成のため)。`llm.mode="remote"` 相当の設定は不要。
+
 ## WebLLM モデル選択
 
 ```ts

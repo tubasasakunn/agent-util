@@ -47,6 +47,7 @@ from ai_agent.client import (
     AgentResult,
     AgentResult as _AgentResult,
     GoalJudgeCallable,
+    LLMHandler,
     StatusCallback,
     StreamCallback,
 )
@@ -57,6 +58,7 @@ from ai_agent.config import (
     DelegateConfig,
     GuardsConfig,
     JudgeConfig,
+    LLMConfig,
     LoopConfig,
     PermissionConfig,
     ReminderConfig,
@@ -164,6 +166,15 @@ class AgentConfig:
     """ルーター専用LLMの設定。省略時はメインLLMをルーターにも使用。"""
     judge: JudgeConfig | None = None
     """ゴール達成判定器の設定。register_judge() で登録した名前を指定。"""
+    llm: LLMConfig | None = None
+    """メインLLMドライバの設定。LLMConfig(mode="remote") でラッパー委譲を有効化。
+
+    ``llm_handler`` を指定すると自動的に mode="remote" に設定される（明示指定が優先）。"""
+    llm_handler: LLMHandler | None = None
+    """``llm.execute`` ハンドラ。指定すると ``llm.mode="remote"`` が自動で有効になり、
+    すべての LLM 呼び出しがこの関数経由になる。OpenAI 互換 ChatRequest dict を受け取り、
+    OpenAI 互換 ChatResponse dict を返す。任意の API 形式（Anthropic / Bedrock /
+    ollama / mock 等）への変換ポイント。"""
 
     def __post_init__(self) -> None:
         if not self.binary:
@@ -181,6 +192,10 @@ class AgentConfig:
         )
 
     def _to_core_config(self) -> _CoreConfig:
+        # llm_handler が指定されていて llm が未指定なら自動で mode="remote" を有効化
+        llm = self.llm
+        if llm is None and self.llm_handler is not None:
+            llm = LLMConfig(mode="remote")
         return _CoreConfig(
             max_turns=self.max_turns,
             system_prompt=self.system_prompt,
@@ -198,6 +213,7 @@ class AgentConfig:
             loop=self.loop,
             router=self.router,
             judge=self.judge,
+            llm=llm,
         )
 
 
@@ -450,6 +466,10 @@ class Agent:
             cwd=self._config.cwd,
         )
         await core.start()
+        # configure より前に llm.execute ハンドラを差し込んでおく
+        # (configure 後すぐルーター呼び出しが走る可能性があるため)
+        if self._config.llm_handler is not None:
+            core.set_llm_handler(self._config.llm_handler)
         applied = await core.configure(self._config._to_core_config())
         logger.info("[Agent:%s] configure 適用済み: %s", self._name, applied)
 
@@ -985,6 +1005,7 @@ __all__ = [
     "AgentConfig",
     "AgentResult",
     "GoalJudgeCallable",
+    "LLMHandler",
     "StatusCallback",
     "StreamCallback",
     "Tool",

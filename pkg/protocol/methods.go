@@ -18,6 +18,9 @@ const (
 	MethodStreamEnd        = "stream.end"
 	MethodContextStatus    = "context.status"
 
+	// LLM 実行をラッパー側に委譲する逆 RPC（コア → ラッパー）
+	MethodLLMExecute = "llm.execute"
+
 	// セッション管理（会話履歴のエクスポート・注入・スナップショット）
 	MethodSessionHistory = "session.history"
 	MethodSessionInject  = "session.inject"
@@ -34,6 +37,12 @@ const (
 const (
 	LoopTypeReact = "react" // デフォルト: ルーター→ツール→レスポンスの ReAct ループ
 	LoopTypeReaf  = "reaf"  // ReAF: ルーター→ツール→評価ファンクション→レスポンスのループ
+)
+
+// LLMConfig.Mode に指定できる値。
+const (
+	LLMModeHTTP   = "http"   // デフォルト: 内蔵 HTTP クライアント (OpenAI 互換)
+	LLMModeRemote = "remote" // ラッパーに llm.execute で委譲
 )
 
 // ガードのステージ識別子（GuardDefinition.Stage / GuardExecuteParams.Stage）。
@@ -109,6 +118,17 @@ type AgentConfigureParams struct {
 	Loop   *LoopConfig   `json:"loop,omitempty"`
 	Router *RouterConfig `json:"router,omitempty"`
 	Judge  *JudgeConfig  `json:"judge,omitempty"`
+	LLM    *LLMConfig    `json:"llm,omitempty"`
+}
+
+// LLMConfig はメイン LLM のドライバ設定。
+// Mode="remote" のとき、すべての ChatCompletion 呼び出しが llm.execute 経由で
+// ラッパーに委譲される。任意 API 形式 (Anthropic / Bedrock / ollama 等) に対応するための拡張ポイント。
+// Mode="" または "http" の場合は内蔵 HTTP クライアント (OpenAI 互換) を使う。
+// TimeoutSeconds は llm.execute 1 回あたりのタイムアウト (0 ならデフォルト)。
+type LLMConfig struct {
+	Mode           string `json:"mode,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
 // LoopConfig はエージェントの実行ループパターンを設定する。
@@ -232,6 +252,27 @@ type ToolExecuteResult struct {
 	Content  string         `json:"content"`
 	IsError  bool           `json:"is_error,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
+// --- llm.execute (コア → ラッパー) ---
+
+// LLMExecuteParams は llm.execute のパラメータ。
+// LLM 呼び出しをラッパー側に委譲し、任意の API 形式 (OpenAI / Anthropic /
+// Bedrock / ollama / mock 等) に変換させるための逆 RPC。
+//
+// Request はコアが組み立てた OpenAI 互換の ChatRequest を表す JSON。
+// ラッパー側はこれを各バックエンドの形式に変換して呼び出し、結果を Response に詰めて返す。
+// json.RawMessage で透過させることで、将来 ChatRequest にフィールドが増えても
+// プロトコル定義を変えずに渡せる。
+type LLMExecuteParams struct {
+	Request json.RawMessage `json:"request"`
+}
+
+// LLMExecuteResult は llm.execute の結果。
+// Response は OpenAI 互換の ChatResponse 形式の JSON。
+// ラッパー側は最低限 `choices[0].message.content` (または `tool_calls`) を含めて返す。
+type LLMExecuteResult struct {
+	Response json.RawMessage `json:"response"`
 }
 
 // --- mcp.register ---

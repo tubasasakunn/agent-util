@@ -49,6 +49,7 @@ pkg/tool/        — Tool interface、スキーマ定義
 - ADR-013: JSON-RPCサーバーにRemoteToolアダプタ+PendingRequestsパターンを採用
 - ADR-014: ストリーミング通知の配線にStreamingCompleter別インターフェース＋Engineコールバックを採用
 - ADR-015: ラッパー側カスタムガード/Verifierをリモート呼び出しで統合する
+- ADR-016: LLM 呼び出しをラッパー委譲するための `llm.execute` 逆 RPC を採用する
 
 詳細は `/decision list` で確認。
 

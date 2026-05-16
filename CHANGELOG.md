@@ -8,7 +8,38 @@
 
 ## [Unreleased]
 
-(まだリリースされていない変更があればここに追加)
+### Added
+
+#### LLM 呼び出しのラッパー委譲 — `llm.execute` 逆 RPC (ADR-016)
+
+これまで Go コアの LLM 呼び出しは OpenAI 互換の HTTP POST に固定されていた。
+`agent.configure` の新フィールド `llm.mode="remote"` を指定すると、すべての
+ChatCompletion が `llm.execute` (コア → ラッパー) として SDK に投げられる。
+これにより Python / JS / Swift から任意 API 形式 (Anthropic / Bedrock /
+Vertex AI / ollama / mock 等) に変換可能になり、ラッパー側に API キー管理・
+レート制御・キャッシュ・観測を集約できる。
+
+- **プロトコル**: `pkg/protocol/methods.go` に `MethodLLMExecute` /
+  `LLMExecuteParams` / `LLMExecuteResult` / `LLMConfig` を追加。
+  `docs/openrpc.json` と `docs/schemas/LLM*.json` 3 本も同期。
+- **Go コア**: `internal/rpc/remote_completer.go` で `llm.Completer` を満たす
+  逆 RPC ドライバを実装。`agent.configure` の `llm.mode="remote"` で
+  Engine の completer をプロキシに差し替える。
+- **Python SDK**: `LLMConfig` / `LLMHandler` / `Agent.set_llm_handler()` 追加。
+  高レベル `AgentConfig.llm_handler` を渡せば `mode="remote"` 自動付与。
+- **JS SDK (Node)**: `LLMConfig` / `LLMHandler` / `Agent.setLLMHandler()` 追加。
+- **Swift SDK**: `LLMConfig` / `LLMHandler` / `RawAgent.setLLMHandler()` 追加。
+  高レベル `AgentConfig.llmHandler` で `mode=.remote` 自動付与。
+- **js-browser SDK は対象外** — 元から `Completer` interface でプラガブル。
+- **後方互換**: `llm.mode` 未指定 (=既存挙動) では従来通り HTTP クライアントを
+  使用。既存ラッパーは無修正で動作。
+- **使い方** (Python の最短例):
+  ```python
+  from ai_agent import Agent, AgentConfig
+  async with Agent(AgentConfig(binary="./agent",
+                               llm_handler=my_handler)) as agent:
+      print(await agent.input("hi"))
+  ```
 
 ## [0.2.1] - 2026-05-16
 

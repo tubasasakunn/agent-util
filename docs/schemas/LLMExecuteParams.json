@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/LLMExecuteParams.json",
+  "title": "LLMExecuteParams",
+  "description": "Reverse RPC params (core -> wrapper). Carries an OpenAI-compatible ChatRequest the wrapper must execute against any LLM backend.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request"],
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Opaque OpenAI-compatible ChatRequest payload (model, messages, tools, response_format, ...).",
+      "additionalProperties": true
+    }
+  }
+}

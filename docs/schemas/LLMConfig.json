@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-agent/docs/schemas/LLMConfig.json",
+  "title": "LLMConfig",
+  "description": "Main LLM driver settings. mode=\"remote\" delegates ChatCompletion to the wrapper via llm.execute.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["http", "remote"],
+      "description": "\"http\" (default) uses the built-in OpenAI-compatible client; \"remote\" delegates to the wrapper via llm.execute."
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Per-call timeout for llm.execute (0 = default)."
+    }
+  }
+}

@@ -48,6 +48,7 @@ Feature blocks (each carries `enabled` to toggle):
 | `tool_scope` | per-call tool subset selection | — |
 | `reminder` | system reminder injection | — |
 | `streaming` | stream.delta / context.status notifications | [streaming.md](../concepts/streaming.md) |
+| `llm` | LLM driver mode (HTTP / wrapper-delegated `llm.execute`) | [llm.execute](./llm.execute.md), ADR-016 |
 
 ### `delegate` / `coordinator`
 
@@ -112,6 +113,17 @@ See [builtins.md](../builtins.md) for the built-in names.
 |---|---|---|
 | `enabled` | boolean | Emit `stream.delta` notifications. |
 | `context_status` | boolean | Emit `context.status` notifications. |
+
+### `llm`
+
+Driver for the main LLM channel (router, response generation, judges, summarizer).
+
+| field | type | description |
+|---|---|---|
+| `mode` | string | `"http"` (default) — built-in OpenAI-compatible HTTP client (`SLLM_ENDPOINT`). `"remote"` — forward every `ChatCompletion` to the wrapper via [`llm.execute`](./llm.execute.md). |
+| `timeout_seconds` | integer | Per-call timeout for `llm.execute`. `0` / unset → 120 s default. |
+
+Switching to `"remote"` lets the wrapper translate to any backend (Anthropic, Bedrock, Vertex AI, ollama, mock, ...) and own auth/caching/observability. See ADR-016.
 
 ## Result
 

@@ -75,6 +75,7 @@ func expectedMethods() []string {
 		MethodContextStatus,
 		MethodJudgeRegister,
 		MethodJudgeEvaluate,
+		MethodLLMExecute,
 	}
 }
 
@@ -145,6 +146,7 @@ func methodSchemaName() map[string]string {
 		MethodContextStatus:    "ContextStatusParams",
 		MethodJudgeRegister:    "JudgeRegisterParams",
 		MethodJudgeEvaluate:    "JudgeEvaluateParams",
+		MethodLLMExecute:       "LLMExecuteParams",
 	}
 }
 
@@ -166,6 +168,7 @@ func goTypes() map[string]reflect.Type {
 		"ContextStatusParams":    reflect.TypeOf(ContextStatusParams{}),
 		"JudgeRegisterParams":    reflect.TypeOf(JudgeRegisterParams{}),
 		"JudgeEvaluateParams":    reflect.TypeOf(JudgeEvaluateParams{}),
+		"LLMExecuteParams":       reflect.TypeOf(LLMExecuteParams{}),
 	}
 }
 

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"fmt"
+	"time"
 
 	agentctx "ai-agent/internal/context"
 	"ai-agent/internal/engine"
@@ -15,8 +16,9 @@ import (
 // notifier 経由のストリーミング設定もここで反映する。
 // remote が非 nil の場合、ガード/Verifier 名はまず builtin で解決し、見つからなければ
 // remote レジストリ（guard.register / verifier.register で登録された名前）からフォールバックする。
+// server は llm.mode="remote" 指定時に RemoteCompleter を構築するために使う (nil 不可)。
 // 設定済みフィールドは applied に追加される。
-func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifier *Notifier, remote *RemoteRegistry) (*engine.Engine, []string, error) {
+func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifier *Notifier, remote *RemoteRegistry, server *Server) (*engine.Engine, []string, error) {
 	var applied []string
 	opts := []engine.Option{
 		engine.WithLogWriter(prev.LogWriter()),
@@ -244,7 +246,26 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 		opts = append(opts, engine.WithTools(tools...))
 	}
 
-	newEng, err := engine.New(prev.Completer(), opts...)
+	// LLM ドライバの切替: llm.mode="remote" のとき完了者をラッパー委譲版に差し替える。
+	// 未指定 / mode="http" / mode="" のときは既存 Completer をそのまま使う。
+	completer := prev.Completer()
+	if p.LLM != nil {
+		switch p.LLM.Mode {
+		case "", protocol.LLMModeHTTP:
+			// 何もしない (既存の HTTP クライアントを維持)
+		case protocol.LLMModeRemote:
+			if server == nil {
+				return nil, nil, fmt.Errorf("llm.mode=remote requires JSON-RPC server")
+			}
+			timeout := time.Duration(p.LLM.TimeoutSeconds) * time.Second
+			completer = NewRemoteCompleter(server, timeout)
+		default:
+			return nil, nil, fmt.Errorf("llm.mode: unknown value %q (expected http|remote)", p.LLM.Mode)
+		}
+		applied = append(applied, "llm")
+	}
+
+	newEng, err := engine.New(completer, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("rebuild engine: %w", err)
 	}

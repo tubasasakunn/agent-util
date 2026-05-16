@@ -53,6 +53,16 @@ public struct AgentConfig: Sendable {
     public var router: RouterConfig?
     public var judge: JudgeConfig?
 
+    /// メインLLMドライバの設定。`LLMConfig(mode: .remote)` でラッパー委譲を有効化。
+    /// `llmHandler` を指定すると、未設定でも自動的に `mode: .remote` が適用される。
+    public var llm: LLMConfig?
+
+    /// `llm.execute` ハンドラ。指定すると `llm.mode=.remote` が自動で有効になり、
+    /// すべての LLM 呼び出しがこの関数経由になる。OpenAI 互換 ChatRequest を受け取り、
+    /// OpenAI 互換 ChatResponse を返す。任意の API 形式 (Anthropic / Bedrock /
+    /// ollama / mock 等) への変換ポイント。
+    public var llmHandler: LLMHandler?
+
     public init(
         binary: String = "agent",
         env: [String: String]? = nil,
@@ -72,7 +82,9 @@ public struct AgentConfig: Sendable {
         streaming: StreamingConfig? = nil,
         loop: LoopConfig? = nil,
         router: RouterConfig? = nil,
-        judge: JudgeConfig? = nil
+        judge: JudgeConfig? = nil,
+        llm: LLMConfig? = nil,
+        llmHandler: LLMHandler? = nil
     ) {
         precondition(!binary.isEmpty, "AgentConfig.binary must be a non-empty string")
         precondition(maxTurns.map { $0 > 0 } ?? true, "AgentConfig.maxTurns must be positive")
@@ -95,10 +107,14 @@ public struct AgentConfig: Sendable {
         self.loop = loop
         self.router = router
         self.judge = judge
+        self.llm = llm
+        self.llmHandler = llmHandler
     }
 
     func toCoreConfig() -> CoreAgentConfig {
-        CoreAgentConfig(
+        // llmHandler が指定されていて llm が未指定なら自動で mode: .remote
+        let effectiveLLM = llm ?? (llmHandler != nil ? LLMConfig(mode: .remote) : nil)
+        return CoreAgentConfig(
             maxTurns: maxTurns,
             systemPrompt: systemPrompt,
             tokenLimit: tokenLimit,
@@ -114,7 +130,8 @@ public struct AgentConfig: Sendable {
             streaming: streaming,
             loop: loop,
             router: router,
-            judge: judge
+            judge: judge,
+            llm: effectiveLLM
         )
     }
 }
@@ -170,6 +187,11 @@ public actor Agent {
         if started { return self }
         let raw = RawAgent(binaryPath: config.binary, env: config.env, cwd: config.cwd)
         try await raw.start()
+        // configure より前に llm.execute ハンドラを差し込む
+        // (configure 直後に LLM 呼び出しが走る可能性があるため)
+        if let handler = config.llmHandler {
+            await raw.setLLMHandler(handler)
+        }
         _ = try await raw.configure(config.toCoreConfig())
         self.core = raw
         self.started = true

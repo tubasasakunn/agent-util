@@ -188,6 +188,30 @@ public struct JudgeConfig: Sendable, Codable {
     }
 }
 
+/// メインLLMドライバの設定。
+/// `mode = .remote` を指定すると、すべての ChatCompletion 呼び出しが
+/// `llm.execute` 経由でラッパーに委譲され、任意 API 形式 (Anthropic /
+/// Bedrock / ollama / mock 等) に変換できる。
+public struct LLMConfig: Sendable, Codable {
+    public enum Mode: String, Sendable, Codable {
+        case http
+        case remote
+    }
+
+    public var mode: Mode?
+    public var timeoutSeconds: Int?
+
+    public init(mode: Mode? = nil, timeoutSeconds: Int? = nil) {
+        self.mode = mode
+        self.timeoutSeconds = timeoutSeconds
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case mode
+        case timeoutSeconds = "timeout_seconds"
+    }
+}
+
 // MARK: - CoreAgentConfig (agent.configure RPCのパラメータ)
 
 /// `agent.configure` JSON-RPCに渡すコア設定。
@@ -210,6 +234,7 @@ public struct CoreAgentConfig: Sendable {
     public var loop: LoopConfig?
     public var router: RouterConfig?
     public var judge: JudgeConfig?
+    public var llm: LLMConfig?
 
     public init(
         maxTurns: Int? = nil,
@@ -227,7 +252,8 @@ public struct CoreAgentConfig: Sendable {
         streaming: StreamingConfig? = nil,
         loop: LoopConfig? = nil,
         router: RouterConfig? = nil,
-        judge: JudgeConfig? = nil
+        judge: JudgeConfig? = nil,
+        llm: LLMConfig? = nil
     ) {
         self.maxTurns = maxTurns
         self.systemPrompt = systemPrompt
@@ -245,6 +271,7 @@ public struct CoreAgentConfig: Sendable {
         self.loop = loop
         self.router = router
         self.judge = judge
+        self.llm = llm
     }
 
     /// JSON-RPC `params` 辞書へ変換 (`None` は省略=omitempty)。
@@ -266,6 +293,7 @@ public struct CoreAgentConfig: Sendable {
         if let v = loop { obj["loop"] = encodeToJSON(v) }
         if let v = router { obj["router"] = encodeToJSON(v) }
         if let v = judge { obj["judge"] = encodeToJSON(v) }
+        if let v = llm { obj["llm"] = encodeToJSON(v) }
         return .object(obj)
     }
 }

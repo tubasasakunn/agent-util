@@ -205,6 +205,54 @@
       ]
     },
     {
+      "name": "llm.execute",
+      "summary": "Delegate a ChatCompletion to the wrapper (core-to-wrapper).",
+      "description": "Reverse RPC. When agent.configure sets llm.mode=\"remote\", every LLM call is forwarded as llm.execute. The wrapper translates the OpenAI-compatible request into any backend format (Anthropic, Bedrock, ollama, mock, ...) and returns an OpenAI-compatible response.",
+      "params": [
+        {
+          "name": "params",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/LLMExecuteParams" }
+        }
+      ],
+      "result": {
+        "name": "LLMExecuteResult",
+        "schema": { "$ref": "#/components/schemas/LLMExecuteResult" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Internal" }
+      ],
+      "examples": [
+        {
+          "name": "echo-completion",
+          "params": [
+            {
+              "name": "params",
+              "value": {
+                "request": {
+                  "model": "gpt-4o-mini",
+                  "messages": [{"role": "user", "content": "hi"}]
+                }
+              }
+            }
+          ],
+          "result": {
+            "name": "LLMExecuteResult",
+            "value": {
+              "response": {
+                "id": "wrapper-1",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o-mini",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "hello"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "mcp.register",
       "summary": "Register an external MCP server as a tool source.",
       "description": "Wrapper-to-core request. Spawns or connects to the configured MCP server (stdio or sse transport) and exposes its tools to the agent.",
@@ -621,7 +669,55 @@
           "streaming": { "$ref": "#/components/schemas/StreamingConfig" },
           "loop": { "$ref": "#/components/schemas/LoopConfig" },
           "router": { "$ref": "#/components/schemas/RouterConfig" },
-          "judge": { "$ref": "#/components/schemas/JudgeConfig" }
+          "judge": { "$ref": "#/components/schemas/JudgeConfig" },
+          "llm": { "$ref": "#/components/schemas/LLMConfig" }
+        }
+      },
+      "LLMConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/LLMConfig.json",
+        "title": "LLMConfig",
+        "description": "Main LLM driver settings. mode=\"remote\" delegates ChatCompletion to the wrapper via llm.execute.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["http", "remote"]
+          },
+          "timeout_seconds": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "LLMExecuteParams": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/LLMExecuteParams.json",
+        "title": "LLMExecuteParams",
+        "description": "Reverse RPC params (core -> wrapper).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request"],
+        "properties": {
+          "request": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Opaque OpenAI-compatible ChatRequest."
+          }
+        }
+      },
+      "LLMExecuteResult": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://github.com/ai-agent/docs/schemas/LLMExecuteResult.json",
+        "title": "LLMExecuteResult",
+        "description": "Reverse RPC result (wrapper -> core).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["response"],
+        "properties": {
+          "response": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Opaque OpenAI-compatible ChatResponse."
+          }
         }
       },
       "DelegateConfig": {

@@ -16,6 +16,7 @@ enum RpcMethod {
     static let contextSummarize = "context.summarize"
     static let judgeRegister = "judge.register"
     static let judgeEvaluate = "judge.evaluate"
+    static let llmExecute = "llm.execute"
     static let sessionHistory = "session.history"
     static let sessionInject = "session.inject"
 
@@ -56,6 +57,12 @@ public struct AgentResult: Sendable, Equatable {
 public typealias StreamCallback = @Sendable (_ text: String, _ turn: Int) async -> Void
 public typealias StatusCallback = @Sendable (_ usageRatio: Double, _ count: Int, _ limit: Int) async -> Void
 
+/// `llm.execute` ハンドラ。OpenAI 互換 ChatRequest を表す `JSONValue` を受け取り、
+/// OpenAI 互換 ChatResponse を表す `JSONValue` を返す。
+/// `agent.configure(llm: LLMConfig(mode: .remote))` を指定すると、コア側のすべての
+/// ChatCompletion 呼び出しがこのハンドラ経由になる。
+public typealias LLMHandler = @Sendable (_ request: JSONValue) async throws -> JSONValue
+
 // MARK: - RawAgent
 
 /// 低レベルJSON-RPCクライアント。プロトコルに忠実な薄いラッパー。
@@ -74,6 +81,7 @@ public actor RawAgent {
 
     private var streamCallback: StreamCallback?
     private var statusCallback: StatusCallback?
+    private var llmHandler: LLMHandler?
 
     public init(
         binaryPath: String = "agent",
@@ -190,6 +198,16 @@ public actor RawAgent {
         let params: JSONValue = .object(["verifiers": .array(defs)])
         _ = try await rpc.call(RpcMethod.verifierRegister, params: params)
         return verifiers.map { $0.name }
+    }
+
+    /// `llm.execute` ハンドラを登録 (`nil` でクリア)。
+    ///
+    /// `configure(LLMConfig(mode: .remote))` 適用中は、コアの ChatCompletion 呼び出しが
+    /// すべてこのハンドラに転送される。ハンドラは OpenAI 互換 ChatRequest を受け取り、
+    /// OpenAI 互換 ChatResponse (少なくとも `choices[0].message.content` または
+    /// `choices[0].message.tool_calls` を含む) を返す必要がある。
+    public func setLLMHandler(_ handler: LLMHandler?) {
+        self.llmHandler = handler
     }
 
     public func registerJudge(name: String, handler: @escaping JudgeHandler) async throws {
@@ -335,6 +353,14 @@ public actor RawAgent {
             }
         }
 
+        // LLM 委譲 (core -> wrapper)
+        await rpc.setRequestHandler(RpcMethod.llmExecute) { [weak self] params in
+            guard let self = self else {
+                return .object([:])
+            }
+            return try await self.handleLLMExecute(params)
+        }
+
         // ストリーム通知
         await rpc.setNotificationHandler(RpcMethod.streamDelta) { [weak self] params in
             await self?.handleStreamDelta(params)
@@ -343,6 +369,23 @@ public actor RawAgent {
         await rpc.setNotificationHandler(RpcMethod.contextStatus) { [weak self] params in
             await self?.handleContextStatus(params)
         }
+    }
+
+    private func handleLLMExecute(_ params: JSONValue) async throws -> JSONValue {
+        guard let handler = llmHandler else {
+            throw AgentError(
+                "received llm.execute but no handler is registered. " +
+                "Call setLLMHandler(_:) before configuring llm.mode=.remote."
+            )
+        }
+        let request = params["request"] ?? .object([:])
+        let response = try await handler(request)
+        if case .object = response {} else {
+            throw AgentError(
+                "llm handler must return a JSON object (OpenAI-style ChatResponse)"
+            )
+        }
+        return .object(["response": response])
     }
 
     private func handleStreamDelta(_ params: JSONValue) async {

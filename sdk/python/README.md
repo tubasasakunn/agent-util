@@ -25,11 +25,12 @@
 8. [ツール / ガード / ベリファイア / ジャッジ](#ツール--ガード--ベリファイア--ジャッジ)
 9. [MCP / スキル統合](#mcp--スキル統合)
 10. [ストリーミング](#ストリーミング)
-11. [フォーク / ブランチ / バッチ](#フォーク--ブランチ--バッチ)
-12. [RAG 検索 / 会話要約](#rag-検索--会話要約)
-13. [エラーハンドリング](#エラーハンドリング)
-14. [テスト](#テスト)
-15. [トラブルシューティング](#トラブルシューティング)
+11. [LLM ハンドラ (任意 API 形式で叩く)](#llm-ハンドラ-任意-api-形式で叩く)
+12. [フォーク / ブランチ / バッチ](#フォーク--ブランチ--バッチ)
+13. [RAG 検索 / 会話要約](#rag-検索--会話要約)
+14. [エラーハンドリング](#エラーハンドリング)
+15. [テスト](#テスト)
+16. [トラブルシューティング](#トラブルシューティング)
 
 ## TL;DR
 
@@ -412,6 +413,79 @@ async for chunk in agent.stream("長めの説明をして"):
 
 事前に `StreamingConfig(enabled=True)` を `AgentConfig` に設定すること。
 未設定の場合は完了後に 1 チャンクとして配信される。
+
+## LLM ハンドラ (任意 API 形式で叩く)
+
+Go ハーネスはデフォルトで `SLLM_ENDPOINT` の OpenAI 互換 HTTP API を叩く。
+**OpenAI 非互換の API (Anthropic / Bedrock / Vertex AI / ollama / 独自プロキシ等)
+を使いたい、あるいはテスト時に LLM をモックしたい場合**は、`llm_handler` を
+指定して `agent.configure` の LLM mode を `remote` に切り替える (ADR-016)。
+
+指定すると、コアの **すべての ChatCompletion 呼び出し** (ルーター / 応答生成 /
+ジャッジ / コンテキスト要約) が `llm.execute` 逆 RPC として Python ハンドラに
+転送される。
+
+```python
+from ai_agent import Agent, AgentConfig
+
+def my_llm(request: dict) -> dict:
+    """OpenAI 互換 ChatRequest dict を受け取り、ChatResponse dict を返す。"""
+    # ここで Anthropic / Bedrock / ollama / mock 等に変換して叩く
+    messages = request["messages"]
+    model = request.get("model", "claude-haiku")
+    # ... 実 API 呼び出し ...
+    text = "..."  # 結果テキスト
+    return {
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": text},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+
+config = AgentConfig(
+    binary="./agent",
+    llm_handler=my_llm,   # 自動で llm.mode="remote" が適用される
+    # SLLM_ENDPOINT は不要 (使われない)
+)
+async with Agent(config) as agent:
+    print(await agent.input("hi"))
+```
+
+明示制御したい場合は `llm=LLMConfig(mode="remote", timeout_seconds=120)` を併用:
+
+```python
+from ai_agent import Agent, AgentConfig, LLMConfig
+
+config = AgentConfig(
+    binary="./agent",
+    llm=LLMConfig(mode="remote", timeout_seconds=180),
+    llm_handler=my_llm,
+)
+```
+
+低レベル `RawAgent` から使う場合は `set_llm_handler` を `configure` 前に呼ぶ:
+
+```python
+from ai_agent.client import Agent as RawAgent
+from ai_agent.config import AgentConfig as CoreConfig, LLMConfig
+
+raw = RawAgent(binary_path="./agent")
+await raw.start()
+raw.set_llm_handler(my_llm)
+await raw.configure(CoreConfig(llm=LLMConfig(mode="remote")))
+```
+
+### 注意点
+
+- ルーターは JSON mode で `{"tool":..., "arguments":..., "reasoning":...}` を
+  期待する。ハンドラ側で `request.get("response_format", {}).get("type") == "json_object"`
+  を見て **必ず有効な JSON を返す** こと
+- 例外を投げると JSON-RPC エラーとして ChatCompletion が失敗する
+- ストリーミング (`StreamingConfig(enabled=True)`) は `llm.mode="remote"` と
+  併用しても delta 通知は飛ばない (ハンドラ呼び出し完了後に 1 回まとめて配信)
+- 動作確認の最小例: `sdk/python/examples/e2e_llm_remote.py`
 
 ## フォーク / ブランチ / バッチ
 

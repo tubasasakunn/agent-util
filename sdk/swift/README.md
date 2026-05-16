@@ -25,12 +25,13 @@ Python と同じ感覚 (`fork()` / `branch()` / `batch()` / `search()` / `contex
 8. [ツール / ガード / ベリファイア / ジャッジ](#ツール--ガード--ベリファイア--ジャッジ)
 9. [MCP / スキル統合](#mcp--スキル統合)
 10. [ストリーミング](#ストリーミング)
-11. [フォーク / ブランチ / バッチ](#フォーク--ブランチ--バッチ)
-12. [RAG 検索 / 会話要約](#rag-検索--会話要約)
-13. [JSONValue リファレンス](#jsonvalue-リファレンス)
-14. [エラーハンドリング](#エラーハンドリング)
-15. [テスト](#テスト)
-16. [実装メモ](#実装メモ)
+11. [LLM ハンドラ (任意 API 形式で叩く)](#llm-ハンドラ-任意-api-形式で叩く)
+12. [フォーク / ブランチ / バッチ](#フォーク--ブランチ--バッチ)
+13. [RAG 検索 / 会話要約](#rag-検索--会話要約)
+14. [JSONValue リファレンス](#jsonvalue-リファレンス)
+15. [エラーハンドリング](#エラーハンドリング)
+16. [テスト](#テスト)
+17. [実装メモ](#実装メモ)
 
 ## TL;DR
 
@@ -455,6 +456,85 @@ for try await chunk in agent.stream("...") {
 
 `StreamingConfig(enabled: true)` を `AgentConfig` に設定すること。未設定なら
 完了後に 1 チャンクとして配信される。
+
+## LLM ハンドラ (任意 API 形式で叩く)
+
+Go ハーネスはデフォルトで `SLLM_ENDPOINT` の OpenAI 互換 HTTP API を叩く。
+**OpenAI 非互換 API (Anthropic / Bedrock / Vertex AI / ollama / 独自プロキシ等)
+を使いたい、あるいはテスト時に LLM をモックしたい場合**は、`llmHandler` を
+指定して `agent.configure` の LLM mode を `.remote` に切り替える (ADR-016)。
+
+指定すると、コアの **すべての ChatCompletion 呼び出し** (ルーター / 応答生成 /
+ジャッジ / コンテキスト要約) が `llm.execute` 逆 RPC として Swift クロージャに
+転送される。
+
+```swift
+import AIAgent
+
+let myLLM: LLMHandler = { request in
+    // request は OpenAI 互換 ChatRequest を表す JSONValue
+    // ここで Anthropic / Bedrock / ollama / mock 等に変換して叩く
+    // OpenAI 互換 ChatResponse を JSONValue で返す
+    return .object([
+        "id": .string("wrapper-1"),
+        "object": .string("chat.completion"),
+        "created": .int(0),
+        "model": request["model"] ?? .string("custom"),
+        "choices": .array([
+            .object([
+                "index": .int(0),
+                "message": .object([
+                    "role": .string("assistant"),
+                    "content": .string("..."),
+                ]),
+                "finish_reason": .string("stop"),
+            ])
+        ]),
+        "usage": .object([
+            "prompt_tokens": .int(0),
+            "completion_tokens": .int(0),
+            "total_tokens": .int(0),
+        ]),
+    ])
+}
+
+let agent = Agent(config: AgentConfig(
+    binary: "./agent",
+    llmHandler: myLLM   // 自動で llm.mode=.remote が適用される
+    // SLLM_ENDPOINT は不要 (使われない)
+))
+let response = try await agent.input("hi")
+```
+
+明示制御したい場合は `llm: LLMConfig(mode: .remote, timeoutSeconds: 180)` を併用:
+
+```swift
+let agent = Agent(config: AgentConfig(
+    binary: "./agent",
+    llm: LLMConfig(mode: .remote, timeoutSeconds: 180),
+    llmHandler: myLLM
+))
+```
+
+低レベル `RawAgent` から使う場合は `setLLMHandler` を `configure` 前に呼ぶ:
+
+```swift
+let raw = RawAgent(binaryPath: "./agent")
+try await raw.start()
+await raw.setLLMHandler(myLLM)
+_ = try await raw.configure(CoreAgentConfig(llm: LLMConfig(mode: .remote)))
+```
+
+### 注意点
+
+- ルーターは JSON mode で `{"tool":..., "arguments":..., "reasoning":...}` を
+  期待する。`request["response_format"]?["type"]?.stringValue == "json_object"`
+  なら **必ず有効な JSON 文字列を `content` に入れて返す** こと
+- クロージャから throw すると JSON-RPC エラーとして ChatCompletion が失敗する
+- ストリーミング (`StreamingConfig(enabled: true)`) と `mode=.remote` を併用しても
+  delta 通知は飛ばない (ハンドラ完了後に 1 回まとめて配信)
+- 動作確認の最小例: `sdk/swift/Tests/AIAgentTests/AgentE2ETests.swift` の
+  `testLLMRemoteRoutesThroughHandler`
 
 ## フォーク / ブランチ / バッチ
 

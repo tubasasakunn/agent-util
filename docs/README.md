@@ -24,6 +24,11 @@ Core-to-wrapper (request/response):
 - `tool.execute` — invoke a registered wrapper tool
 - `guard.execute` — invoke a registered wrapper guard
 - `verifier.execute` — invoke a registered wrapper verifier
+- `llm.execute` — delegate a ChatCompletion to the wrapper. Activated by
+  `agent.configure({ llm: { mode: "remote" } })`. The wrapper receives an
+  OpenAI-compatible `ChatRequest` and must return an OpenAI-compatible
+  `ChatResponse`; use it to plug in any backend (Anthropic, Bedrock, ollama,
+  mock, ...). See [ADR-016](../.claude/skills/decisions/016-llm-execute-reverse-rpc.md).
 
 Core-to-wrapper (notifications, no `id`, no response):
 

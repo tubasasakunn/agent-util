@@ -74,6 +74,18 @@ export interface StreamingConfig {
   context_status?: boolean;
 }
 
+/**
+ * Main LLM driver config.
+ *
+ * `mode: 'remote'` forwards every ChatCompletion to the wrapper via the
+ * `llm.execute` reverse RPC. Install the handler with
+ * {@link Agent.setLLMHandler} before calling `configure`.
+ */
+export interface LLMConfig {
+  mode?: 'http' | 'remote';
+  timeout_seconds?: number;
+}
+
 export interface AgentConfig {
   max_turns?: number;
   system_prompt?: string;
@@ -88,6 +100,7 @@ export interface AgentConfig {
   tool_scope?: ToolScopeConfig;
   reminder?: ReminderConfig;
   streaming?: StreamingConfig;
+  llm?: LLMConfig;
 }
 
 /**

@@ -59,6 +59,22 @@ await client.close();
 より実用的な例（ツール登録、ストリーミング、リモート Guard など）は
 [`examples/`](examples/) を参照。
 
+### 任意 API 形式の LLM を使いたい (Anthropic / Bedrock / ollama / mock)
+
+Go コアはデフォルトで OpenAI 互換 HTTP API (`SLLM_ENDPOINT`) を叩く。
+これを SDK 側のコールバックに差し替える `llm.execute` 逆 RPC (ADR-016)
+で、任意の API 形式・モック・キャッシュ・PII マスキングが可能:
+
+```python
+# Python
+from ai_agent import Agent, AgentConfig
+def my_llm(req: dict) -> dict: ...  # OpenAI 互換 ChatRequest → ChatResponse
+async with Agent(AgentConfig(binary="./agent", llm_handler=my_llm)) as agent:
+    print(await agent.input("hi"))
+```
+
+詳細は各 SDK README の「LLM ハンドラ」節を参照。
+
 ## ドキュメント
 
 | 種別                 | 場所                                                                |

@@ -35,7 +35,7 @@ Wrapper (Python/JS) <-- JSON-RPC over stdio --> ai-agent core (Go)
                                                   +-- Permission / Guards / Verify
 ```
 
-The core never makes outbound network calls except to the LLM endpoint configured via `SLLM_ENDPOINT`.
+The core never makes outbound network calls except to the LLM endpoint configured via `SLLM_ENDPOINT`. If `agent.configure({ llm: { mode: "remote" } })` is in effect, even those LLM calls are forwarded to the wrapper via [`llm.execute`](./methods/llm.execute.md) — the core then has zero outbound HTTP traffic and the wrapper owns the LLM integration end-to-end (ADR-016).
 
 ## Communication model
 
@@ -49,7 +49,7 @@ The core never makes outbound network calls except to the LLM endpoint configure
 | Direction | Methods |
 |---|---|
 | Wrapper → Core (request/response) | `agent.run`, `agent.abort`, `agent.configure`, `tool.register`, `mcp.register`, `guard.register`, `verifier.register` |
-| Core → Wrapper (request/response) | `tool.execute`, `guard.execute`, `verifier.execute` |
+| Core → Wrapper (request/response) | `tool.execute`, `guard.execute`, `verifier.execute`, `llm.execute` |
 | Core → Wrapper (notification, `id` omitted) | `stream.delta`, `stream.end`, `context.status` |
 
 A notification has no `id` field and never receives a response. See [notifications.md](./methods/notifications.md).

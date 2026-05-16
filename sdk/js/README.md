@@ -28,10 +28,11 @@
 7. [ツール / ガード / ベリファイア](#ツール--ガード--ベリファイア)
 8. [MCP 統合](#mcp-統合)
 9. [ストリーミング](#ストリーミング)
-10. [エラーハンドリング](#エラーハンドリング)
-11. [Bun / Deno](#bun--deno)
-12. [テスト](#テスト)
-13. [トラブルシューティング](#トラブルシューティング)
+10. [LLM ハンドラ (任意 API 形式で叩く)](#llm-ハンドラ-任意-api-形式で叩く)
+11. [エラーハンドリング](#エラーハンドリング)
+12. [Bun / Deno](#bun--deno)
+13. [テスト](#テスト)
+14. [トラブルシューティング](#トラブルシューティング)
 
 ## TL;DR
 
@@ -388,6 +389,64 @@ for await (const ev of agent.runStream('...')) {
 ```
 
 事前に `streaming: { enabled: true }` を `configure` で設定すること。
+
+## LLM ハンドラ (任意 API 形式で叩く)
+
+Go ハーネスはデフォルトで `SLLM_ENDPOINT` の OpenAI 互換 HTTP API を叩く。
+**OpenAI 非互換 API (Anthropic / Bedrock / Vertex AI / ollama / 独自プロキシ等)
+を使いたい、あるいはテスト時に LLM をモックしたい場合**は、`setLLMHandler` で
+ハンドラを登録し、`configure` で `llm.mode="remote"` を指定する (ADR-016)。
+
+指定すると、コアの **すべての ChatCompletion 呼び出し** (ルーター / 応答生成 /
+ジャッジ / コンテキスト要約) が `llm.execute` 逆 RPC として TypeScript ハンドラ
+に転送される。
+
+```ts
+import { Agent, type LLMHandler } from '@ai-agent/sdk';
+
+const myLLM: LLMHandler = async (request) => {
+  // request は OpenAI 互換 ChatRequest dict
+  // ここで Anthropic / Bedrock / ollama / mock 等に変換して叩く
+  // OpenAI 互換 ChatResponse dict を返す
+  return {
+    id: 'wrapper-1',
+    object: 'chat.completion',
+    created: 0,
+    model: String(request.model ?? 'custom'),
+    choices: [{
+      index: 0,
+      message: { role: 'assistant', content: '...' },
+      finish_reason: 'stop',
+    }],
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  };
+};
+
+const agent = new Agent({ binaryPath: './agent' });
+await agent.start();
+agent.setLLMHandler(myLLM);                       // configure より前に
+await agent.configure({ llm: { mode: 'remote' } });
+const r = await agent.run('hi');
+// SLLM_ENDPOINT は不要 (使われない)
+```
+
+タイムアウトを明示する場合:
+
+```ts
+await agent.configure({ llm: { mode: 'remote', timeout_seconds: 180 } });
+```
+
+### 注意点
+
+- ルーターは JSON mode で `{"tool":..., "arguments":..., "reasoning":...}` を
+  期待する。ハンドラ側で `request.response_format?.type === 'json_object'`
+  を見て **必ず有効な JSON を返す** こと
+- 例外を投げると JSON-RPC エラーとして ChatCompletion が失敗する
+- ストリーミング (`streaming.enabled=true`) と `llm.mode="remote"` を併用しても
+  delta 通知は飛ばない (ハンドラ完了後に 1 回まとめて配信)
+- `llm.mode` 未指定 / `'http'` のときは従来通り SLLM_ENDPOINT の HTTP API を叩く
+- 動作確認の最小例: `sdk/js/test/e2e.test.ts` の
+  `llm.mode=remote routes ChatCompletion to setLLMHandler` テスト
 
 ## エラーハンドリング
 

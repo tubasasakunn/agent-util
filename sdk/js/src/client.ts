@@ -53,6 +53,7 @@ const M_GUARD_REGISTER = 'guard.register';
 const M_GUARD_EXECUTE = 'guard.execute';
 const M_VERIFIER_REGISTER = 'verifier.register';
 const M_VERIFIER_EXECUTE = 'verifier.execute';
+const M_LLM_EXECUTE = 'llm.execute';
 const N_STREAM_DELTA = 'stream.delta';
 const N_STREAM_END = 'stream.end';
 const N_CONTEXT_STATUS = 'context.status';
@@ -76,6 +77,18 @@ export type StatusCallback = (
   tokenCount: number,
   tokenLimit: number,
 ) => void | Promise<void>;
+
+/**
+ * LLM handler — receives an OpenAI-compatible ChatRequest dict and must
+ * return an OpenAI-compatible ChatResponse dict. Sync or async.
+ *
+ * Used when `configure({ llm: { mode: 'remote' } })` is in effect; every
+ * core-side ChatCompletion arrives here so the handler can translate to
+ * any backend (Anthropic, Bedrock, ollama, mock, ...).
+ */
+export type LLMHandler = (
+  request: Record<string, unknown>,
+) => Record<string, unknown> | Promise<Record<string, unknown>>;
 
 export interface AgentOptions {
   /** Path to the compiled `agent` binary. Defaults to `"agent"` (PATH lookup). */
@@ -121,6 +134,7 @@ export class Agent {
 
   private streamCallback: StreamCallback | undefined;
   private statusCallback: StatusCallback | undefined;
+  private llmHandler: LLMHandler | undefined;
   private runInProgress = false;
 
   constructor(options: AgentOptions = {}) {
@@ -342,6 +356,21 @@ export class Agent {
     return Number(raw?.registered ?? 0);
   }
 
+  /**
+   * Install (or clear) the `llm.execute` handler.
+   *
+   * When `configure({ llm: { mode: 'remote' } })` is in effect, every
+   * ChatCompletion the core would normally send over HTTP is forwarded here
+   * instead. The handler receives the OpenAI-compatible ChatRequest dict
+   * and must return an OpenAI-compatible ChatResponse dict (with at least
+   * `choices[0].message.content` or `choices[0].message.tool_calls`).
+   *
+   * Pass `undefined` to clear a previously-installed handler.
+   */
+  setLLMHandler(handler: LLMHandler | undefined): void {
+    this.llmHandler = handler;
+  }
+
   async registerMCP(options: MCPOptions): Promise<string[]> {
     const params: Record<string, unknown> = {
       transport: options.transport ?? 'stdio',
@@ -364,6 +393,7 @@ export class Agent {
     this.rpc.setRequestHandler(M_VERIFIER_EXECUTE, (p) =>
       this.handleVerifierExecute(p),
     );
+    this.rpc.setRequestHandler(M_LLM_EXECUTE, (p) => this.handleLLMExecute(p));
     this.rpc.setNotificationHandler(N_STREAM_DELTA, (p) => this.handleStreamDelta(p));
     this.rpc.setNotificationHandler(N_STREAM_END, () => undefined);
     this.rpc.setNotificationHandler(N_CONTEXT_STATUS, (p) =>
@@ -437,6 +467,26 @@ export class Agent {
         summary: `verifier error: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
+  }
+
+  private async handleLLMExecute(
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const handler = this.llmHandler;
+    if (!handler) {
+      throw new AgentError(
+        'received llm.execute but no handler is registered. ' +
+          "Call agent.setLLMHandler(fn) before configuring llm.mode='remote'.",
+      );
+    }
+    const request = (params.request ?? {}) as Record<string, unknown>;
+    const result = await handler(request);
+    if (result === null || typeof result !== 'object') {
+      throw new AgentError(
+        'llm handler must return an object (OpenAI-style ChatResponse)',
+      );
+    }
+    return { response: result };
   }
 
   private async handleStreamDelta(params: Record<string, unknown>): Promise<void> {

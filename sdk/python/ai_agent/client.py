@@ -41,6 +41,7 @@ _M_VERIFIER_EXECUTE = "verifier.execute"
 _M_CONTEXT_SUMMARIZE = "context.summarize"
 _M_JUDGE_REGISTER = "judge.register"
 _M_JUDGE_EVALUATE = "judge.evaluate"
+_M_LLM_EXECUTE = "llm.execute"
 _N_STREAM_DELTA = "stream.delta"
 _N_STREAM_END = "stream.end"
 _N_CONTEXT_STATUS = "context.status"
@@ -48,6 +49,11 @@ _N_CONTEXT_STATUS = "context.status"
 _GoalJudgeResult = tuple[bool, str]
 # GoalJudge callable: (response, turn) -> (terminate, reason).  Sync or async.
 GoalJudgeCallable = Callable[[str, int], "_GoalJudgeResult | Awaitable[_GoalJudgeResult]"]
+
+# LLM handler: receives an OpenAI-compatible ChatRequest dict and must return
+# an OpenAI-compatible ChatResponse dict. Sync or async. Used when
+# ``agent.configure(llm=LLMConfig(mode="remote"))`` is in effect.
+LLMHandler = Callable[[dict[str, Any]], "dict[str, Any] | Awaitable[dict[str, Any]]"]
 
 
 @dataclass
@@ -109,6 +115,7 @@ class Agent:
         self._guards: dict[str, GuardDefinition] = {}
         self._verifiers: dict[str, VerifierDefinition] = {}
         self._judges: dict[str, GoalJudgeCallable] = {}
+        self._llm_handler: LLMHandler | None = None
 
         self._on_status: StatusCallback | None = None
 
@@ -319,6 +326,20 @@ class Agent:
             defs, self._verifiers, _M_VERIFIER_REGISTER, "verifiers"
         )
 
+    def set_llm_handler(self, handler: LLMHandler | None) -> None:
+        """Install (or clear) the ``llm.execute`` handler.
+
+        When ``agent.configure(llm=LLMConfig(mode="remote"))`` is in effect,
+        every ChatCompletion the core would normally send over HTTP is
+        forwarded here instead. The handler receives the OpenAI-compatible
+        ChatRequest dict and must return an OpenAI-compatible ChatResponse
+        dict (with at least ``choices[0].message.content`` or
+        ``choices[0].message.tool_calls``). Sync or async.
+
+        Pass ``None`` to clear a previously-installed handler.
+        """
+        self._llm_handler = handler
+
     async def register_judge(self, name: str, handler: GoalJudgeCallable) -> None:
         """Register a goal-judge callable under *name*.
 
@@ -369,6 +390,7 @@ class Agent:
             _M_VERIFIER_EXECUTE, self._handle_verifier_execute
         )
         self._rpc.set_request_handler(_M_JUDGE_EVALUATE, self._handle_judge_evaluate)
+        self._rpc.set_request_handler(_M_LLM_EXECUTE, self._handle_llm_execute)
 
         self._rpc.set_notification_handler(_N_STREAM_DELTA, self._handle_stream_delta)
         self._rpc.set_notification_handler(_N_STREAM_END, self._handle_stream_end)
@@ -449,6 +471,26 @@ class Agent:
             return {"terminate": False, "reason": f"judge error: {exc}"}
         return {"terminate": bool(terminate), "reason": str(reason)}
 
+    async def _handle_llm_execute(self, params: dict[str, Any]) -> dict[str, Any]:
+        handler = self._llm_handler
+        if handler is None:
+            raise AgentError(
+                "received llm.execute but no handler is registered.\n"
+                "Call agent.set_llm_handler(fn) before configuring llm.mode='remote'."
+            )
+        request = params.get("request") or {}
+        try:
+            ret = handler(request)
+            if inspect.isawaitable(ret):
+                ret = await ret
+        except Exception as exc:  # noqa: BLE001
+            raise AgentError(f"llm handler raised: {exc}") from exc
+        if not isinstance(ret, dict):
+            raise AgentError(
+                f"llm handler must return a dict (OpenAI-style ChatResponse), got {type(ret).__name__}"
+            )
+        return {"response": ret}
+
     async def _handle_stream_delta(self, params: dict[str, Any]) -> None:
         cb = self._stream_cb
         if cb is None:
@@ -513,4 +555,5 @@ __all__ = [
     "AgentResult",
     "UsageInfo",
     "GuardDenied",
+    "LLMHandler",
 ]

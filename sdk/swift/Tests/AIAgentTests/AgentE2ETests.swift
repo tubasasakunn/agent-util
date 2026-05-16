@@ -61,6 +61,66 @@ final class AgentE2ETests: XCTestCase {
         XCTAssertFalse(ok)
     }
 
+    /// llm.mode=.remote 指定時に ChatCompletion が setLLMHandler 経由になることを確認。
+    /// 実 LLM サーバ不要 (SLLM_ENDPOINT を壊した状態で動く)。
+    func testLLMRemoteRoutesThroughHandler() async throws {
+        let binary = try skipIfNoBinary()
+
+        // 故意に SLLM_ENDPOINT を壊して「HTTP は使われない」ことを担保
+        let env = ["SLLM_ENDPOINT": "http://127.0.0.1:1/nonexistent"]
+
+        let callCount = CallCounter()
+
+        let agent = Agent(config: AgentConfig(
+            binary: binary,
+            env: env,
+            systemPrompt: "You are a tester.",
+            maxTurns: 2,
+            llmHandler: { request in
+                await callCount.increment()
+                let responseFormat = request["response_format"]?["type"]?.stringValue
+                let content: String
+                if responseFormat == "json_object" {
+                    content = #"{"tool":"none","arguments":{},"reasoning":"fake"}"#
+                } else {
+                    let last = (request["messages"]?.arrayValue ?? [])
+                        .reversed()
+                        .first(where: { $0["role"]?.stringValue == "user" })?["content"]?
+                        .stringValue ?? "(none)"
+                    content = "SWIFT-FAKE: \(last)"
+                }
+                return .object([
+                    "id": .string("fake-swift"),
+                    "object": .string("chat.completion"),
+                    "created": .int(0),
+                    "model": request["model"] ?? .string("fake"),
+                    "choices": .array([
+                        .object([
+                            "index": .int(0),
+                            "message": .object([
+                                "role": .string("assistant"),
+                                "content": .string(content),
+                            ]),
+                            "finish_reason": .string("stop"),
+                        ])
+                    ]),
+                    "usage": .object([
+                        "prompt_tokens": .int(1),
+                        "completion_tokens": .int(1),
+                        "total_tokens": .int(2),
+                    ]),
+                ])
+            }
+        ))
+
+        let response = try await agent.input("hello!")
+        await agent.close()
+
+        let count = await callCount.value
+        XCTAssertGreaterThan(count, 0, "llm.execute handler should have been invoked")
+        XCTAssertTrue(response.contains("SWIFT-FAKE"), "response was: \(response)")
+    }
+
     // MARK: - 実LLMを叩く
 
     func testHighLevelAgentInput() async throws {
@@ -180,5 +240,11 @@ final class AgentE2ETests: XCTestCase {
             throw XCTSkip("LLM endpoint not reachable: \(error)")
         }
     }
+}
+
+/// 並行安全なカウンター (testLLMRemoteRoutesThroughHandler 用)。
+actor CallCounter {
+    private(set) var value: Int = 0
+    func increment() { value += 1 }
 }
 
