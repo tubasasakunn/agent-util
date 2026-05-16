@@ -25,7 +25,7 @@
 | **Python**        | `ai-agent` (local)   | [`./python/`](./python/)          | サブプロセス: `agent --rpc` over stdio        | ◯                |
 | **TypeScript (Node)** | `@ai-agent/sdk`  | [`./js/`](./js/)                  | サブプロセス: `agent --rpc` over stdio        | △ (低レベルのみ) |
 | **TypeScript (Browser)** | `@ai-agent/browser` | [`./js-browser/`](./js-browser/) | ブラウザ内 (LLM は WebLLM / WebGPU)           | △ (低レベルのみ) |
-| **Swift**         | `AIAgent` (SwiftPM)  | [`./swift/`](./swift/)            | サブプロセス: `agent --rpc` over stdio        | ◯                |
+| **Swift**         | `AIAgent` (SwiftPM)  | [`./swift/`](./swift/) (ソース実体), `../Package.swift` (マニフェスト) | サブプロセス: `agent --rpc` over stdio | ◯                |
 
 ## 言語の選び方
 

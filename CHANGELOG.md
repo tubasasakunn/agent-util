@@ -10,6 +10,28 @@
 
 (まだリリースされていない変更があればここに追加)
 
+## [0.2.1] - 2026-05-16
+
+Swift SDK の **配信修正リリース**。v0.2.0 を SwiftPM 経由で外部利用すると
+`Package.swift` がリポジトリルートに無いため依存解決に失敗していた。
+ロジック変更なし、Swift 利用者向けの hotfix のみ。
+
+### Fixed
+
+- **Swift SDK の SwiftPM 依存解決を修正** — Swift Package Manager は
+  リポジトリのルートにある `Package.swift` しか認識しないため、ルートに
+  マニフェストを置き、ソースパスを `sdk/swift/Sources/AIAgent` / テストを
+  `sdk/swift/Tests/AIAgentTests` に向けるよう変更。これにより
+  `.package(url: "https://github.com/tubasasakunn/agent-util.git", from: "0.2.1")`
+  で正しく利用可能になった。
+- 重複していた `sdk/swift/Package.swift` を削除。ローカルで `swift build` /
+  `swift test` を実行する際は **リポジトリのルート**から実行する。
+
+### Docs
+
+- `sdk/swift/README.md` を 0.2.1 のインストール手順に追従。
+- `sdk/README.md` でルート Package.swift の存在を明記。
+
 ## [0.2.0] - 2026-05-16
 
 エージェント連携を強化する 4 つの大きなテーマを含む 2 回目のリリース。

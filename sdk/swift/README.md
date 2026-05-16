@@ -67,22 +67,20 @@ go build -o agent ./cmd/agent/
 
 ## インストール
 
-`Package.swift` に依存追加:
+`Package.swift` の `dependencies` に追加:
 
 ```swift
-// ローカルパス
-.package(path: "../path/to/ai-agent/sdk/swift")
+// 推奨: GitHub リポジトリから (v0.2.1+)
+.package(url: "https://github.com/tubasasakunn/agent-util.git", from: "0.2.1"),
 
-// Git
-.package(url: "https://github.com/your-org/ai-agent.git", from: "0.1.0")
+// または: ローカルパス
+.package(path: "../path/to/agent-util"),
 ```
 
 ターゲット依存:
 
 ```swift
-.product(name: "AIAgent", package: "swift"),  // ローカル
-// または
-.product(name: "AIAgent", package: "ai-agent"),
+.product(name: "AIAgent", package: "agent-util"),
 ```
 
 import:
@@ -90,6 +88,12 @@ import:
 ```swift
 import AIAgent
 ```
+
+> **リポジトリ構造の注意**: `Package.swift` はリポジトリのルートに置かれている
+> (SwiftPM はリポジトリルートの Package.swift しか認識しないため)。
+> ソース本体は `sdk/swift/Sources/AIAgent/`、テストは `sdk/swift/Tests/AIAgentTests/`。
+> ローカルで `swift build` / `swift test` を実行する際は **リポジトリのルート**
+> から実行する。
 
 ## AOM (Agent Object Model)
 
@@ -559,12 +563,18 @@ do {
 
 ## テスト
 
+**リポジトリルートから実行する** (Package.swift がルートにあるため):
+
 ```bash
+# リポジトリのルートで
+cd /path/to/agent-util
+
 # ユニットテスト (バイナリ不要、16 ケース)
 swift test
 
 # E2E (実バイナリ + 実 LLM、6 ケース)
-AGENT_BINARY=$(pwd)/../../bin/agent swift test
+go build -o bin/agent ./cmd/agent/
+AGENT_BINARY="$(pwd)/bin/agent" swift test
 ```
 
 環境変数で LLM 接続先を上書き可能 (default `http://localhost:8080/v1/chat/completions` / `sk-gemma4`):
@@ -572,7 +582,7 @@ AGENT_BINARY=$(pwd)/../../bin/agent swift test
 ```bash
 SLLM_ENDPOINT="https://api.openai.com/v1/chat/completions" \
 SLLM_API_KEY="sk-..." \
-AGENT_BINARY=./agent swift test
+AGENT_BINARY=./bin/agent swift test
 ```
 
 ## 実装メモ

@@ -1,6 +1,6 @@
 {
   "name": "@ai-agent/browser",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pure-TypeScript browser SDK for ai-agent — runs the agent loop in the browser with WebLLM (no Go core required).",
   "license": "MIT",
   "type": "module",

@@ -20,4 +20,4 @@ package protocol
 //
 // Swift SDK (sdk/swift) は SwiftPM の慣習に従い Git tag (v0.2.0 等) で
 // バージョン管理する。Package.swift にはバージョン値を書かない。
-const LibraryVersion = "0.2.0"
+const LibraryVersion = "0.2.1"
