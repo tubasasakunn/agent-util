@@ -12,36 +12,36 @@ import (
 type Option func(*engineConfig)
 
 type engineConfig struct {
-	maxTurns               int
-	systemPrompt           string
-	tools                  []tool.Tool
-	logWriter              io.Writer
-	tokenLimit             int
-	compaction             *agentctx.CompactionConfig
-	delegateEnabled        bool
-	delegateMaxChars       int
-	workDir                string
+	maxTurns                  int
+	systemPrompt              string
+	tools                     []tool.Tool
+	logWriter                 io.Writer
+	tokenLimit                int
+	compaction                *agentctx.CompactionConfig
+	delegateEnabled           bool
+	delegateMaxChars          int
+	workDir                   string
 	coordinatorEnabled        bool
 	coordinateMaxChars        int
 	coordinatorMaxParallelism int
 	dynamicSections           []Section
-	reminderThreshold      int
-	memoryEntries          []MemoryEntry
-	toolScope              *ToolScope
-	maxStepRetries         int
-	maxConsecutiveFailures int
-	verifiers              []Verifier
-	permissionPolicy       *PermissionPolicy
-	userApprover           UserApprover
-	auditWriter            io.Writer
-	inputGuards            []InputGuard
-	toolCallGuards         []ToolCallGuard
-	outputGuards           []OutputGuard
-	stepCallback           StepCallback
-	streamingEnabled       bool
-	streamCallback         StreamCallback
-	contextStatusCallback  ContextStatusCallback
-	skillsDirs             []string
+	reminderThreshold         int
+	memoryEntries             []MemoryEntry
+	toolScope                 *ToolScope
+	maxStepRetries            int
+	maxConsecutiveFailures    int
+	verifiers                 []Verifier
+	permissionPolicy          *PermissionPolicy
+	userApprover              UserApprover
+	auditWriter               io.Writer
+	inputGuards               []InputGuard
+	toolCallGuards            []ToolCallGuard
+	outputGuards              []OutputGuard
+	stepCallback              StepCallback
+	streamingEnabled          bool
+	streamCallback            StreamCallback
+	contextStatusCallback     ContextStatusCallback
+	skillsDirs                []string
 	// ループパターンと拡張コンポーネント
 	loopType        LoopType
 	routerCompleter llm.Completer

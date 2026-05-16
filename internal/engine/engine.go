@@ -17,36 +17,36 @@ const defaultCoordinatorMaxParallelism = 10
 
 // Engine はエージェントループを管理する。
 type Engine struct {
-	completer                    llm.Completer
-	ctxManager                   *agentctx.Manager
-	maxTurns                     int
-	systemPrompt                 string
-	registry                     *Registry
-	logw                         io.Writer
-	compaction                   *agentctx.CompactionConfig
-	delegateEnabled              bool
-	delegateMaxChars             int
-	workDir                      string
-	coordinatorEnabled           bool
-	coordinateMaxChars           int
-	coordinatorMaxParallelism    int
-	promptBuilder                *PromptBuilder
-	reminderThreshold            int
-	toolScope                    *ToolScope
-	maxStepRetries               int
-	maxConsecutiveFailures       int
-	verifiers                    *VerifierRegistry
-	permChecker                  *PermissionChecker // nil なら全許可（後方互換）
-	guards                       *GuardRegistry     // nil ならガードなし（後方互換）
-	stepCallback                 StepCallback       // nil ならコールバックなし
-	streamingEnabled             bool
-	streamCallback               StreamCallback
-	contextStatusCallback        ContextStatusCallback
-	skillToolNames               map[string]struct{}
+	completer                 llm.Completer
+	ctxManager                *agentctx.Manager
+	maxTurns                  int
+	systemPrompt              string
+	registry                  *Registry
+	logw                      io.Writer
+	compaction                *agentctx.CompactionConfig
+	delegateEnabled           bool
+	delegateMaxChars          int
+	workDir                   string
+	coordinatorEnabled        bool
+	coordinateMaxChars        int
+	coordinatorMaxParallelism int
+	promptBuilder             *PromptBuilder
+	reminderThreshold         int
+	toolScope                 *ToolScope
+	maxStepRetries            int
+	maxConsecutiveFailures    int
+	verifiers                 *VerifierRegistry
+	permChecker               *PermissionChecker // nil なら全許可（後方互換）
+	guards                    *GuardRegistry     // nil ならガードなし（後方互換）
+	stepCallback              StepCallback       // nil ならコールバックなし
+	streamingEnabled          bool
+	streamCallback            StreamCallback
+	contextStatusCallback     ContextStatusCallback
+	skillToolNames            map[string]struct{}
 	// ループパターンと拡張コンポーネント
 	loopType        LoopType
 	routerCompleter llm.Completer // nil なら completer を使用
-	goalJudge       GoalJudge    // nil ならヒューリスティック判定
+	goalJudge       GoalJudge     // nil ならヒューリスティック判定
 }
 
 // New は Engine を生成する。ツール名の重複など設定エラーは error で返す。

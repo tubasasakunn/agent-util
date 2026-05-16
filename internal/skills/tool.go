@@ -20,9 +20,9 @@ func AsTool(s Skill) tool.Tool {
 	return &skillTool{skill: s}
 }
 
-func (t *skillTool) Name() string            { return t.skill.Name }
-func (t *skillTool) Description() string     { return t.skill.Description }
-func (t *skillTool) IsReadOnly() bool { return true }
+func (t *skillTool) Name() string        { return t.skill.Name }
+func (t *skillTool) Description() string { return t.skill.Description }
+func (t *skillTool) IsReadOnly() bool    { return true }
 
 // Parameters はスキルツールが引数を取らないことを示す。
 // スキルはツール名そのもので識別され、追加パラメータは不要。

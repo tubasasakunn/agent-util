@@ -33,7 +33,7 @@ func NewRemoteTool(def tool.Definition, server *Server) *RemoteTool {
 func (t *RemoteTool) Name() string                { return t.def.Name }
 func (t *RemoteTool) Description() string         { return t.def.Description }
 func (t *RemoteTool) Parameters() json.RawMessage { return t.def.Parameters }
-func (t *RemoteTool) IsReadOnly() bool { return t.def.ReadOnly }
+func (t *RemoteTool) IsReadOnly() bool            { return t.def.ReadOnly }
 
 // Execute はラッパーに tool.execute リクエストを送信し、結果を待つ。
 func (t *RemoteTool) Execute(ctx context.Context, args json.RawMessage) (tool.Result, error) {

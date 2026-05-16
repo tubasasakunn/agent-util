@@ -13,7 +13,11 @@ package protocol
 //   - pkg/protocol/version.go (本ファイル)
 //   - sdk/python/pyproject.toml
 //   - sdk/js/package.json
+//   - sdk/js-browser/package.json
 //   - README.md のバッジ
 //   - CLAUDE.md の `## バージョン` セクション
 //   - CHANGELOG.md の見出し
-const LibraryVersion = "0.1.0"
+//
+// Swift SDK (sdk/swift) は SwiftPM の慣習に従い Git tag (v0.2.0 等) で
+// バージョン管理する。Package.swift にはバージョン値を書かない。
+const LibraryVersion = "0.2.0"
