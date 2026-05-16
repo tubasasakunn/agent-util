@@ -318,10 +318,10 @@ public actor RawAgent {
                 output: params["output"]?.stringValue ?? ""
             )
             do {
-                let (decision, reason) = try await g.handler(input)
+                let outcome = try await g.handler(input)
                 return .object([
-                    "decision": .string(decision.rawValue),
-                    "reason": .string(reason),
+                    "decision": .string(outcome.decision.rawValue),
+                    "reason": .string(outcome.reason),
                 ])
             } catch {
                 return .object([
@@ -342,14 +342,14 @@ public actor RawAgent {
                 ])
             }
             do {
-                let (passed, summary) = try await v.handler(
+                let outcome = try await v.handler(
                     params["tool_name"]?.stringValue ?? "",
                     params["args"] ?? .object([:]),
                     params["result"]?.stringValue ?? ""
                 )
                 return .object([
-                    "passed": .bool(passed),
-                    "summary": .string(summary),
+                    "passed": .bool(outcome.passed),
+                    "summary": .string(outcome.summary),
                 ])
             } catch {
                 return .object([
@@ -370,13 +370,13 @@ public actor RawAgent {
                 ])
             }
             do {
-                let (terminate, reason) = try await handler(
+                let outcome = try await handler(
                     params["response"]?.stringValue ?? "",
                     params["turn"]?.intValue ?? 0
                 )
                 return .object([
-                    "terminate": .bool(terminate),
-                    "reason": .string(reason),
+                    "terminate": .bool(outcome.terminate),
+                    "reason": .string(outcome.reason),
                 ])
             } catch {
                 return .object([

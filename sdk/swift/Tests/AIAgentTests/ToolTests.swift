@@ -36,12 +36,14 @@ final class ToolTests: XCTestCase {
 
     func testGuardSpecHelpers() async {
         let inputGuard = GuardSpec.input(name: "no_secrets") { input in
-            input.contains("secret") ? (.deny, "contains secret") : (.allow, "ok")
+            input.contains("secret")
+                ? GuardOutcome.deny("contains secret")
+                : GuardOutcome.allow
         }
-        let (decision, reason) = try! await inputGuard.handler(
+        let outcome = try! await inputGuard.handler(
             GuardInput(input: "this has secret", toolName: "", args: .object([:]), output: "")
         )
-        XCTAssertEqual(decision, .deny)
-        XCTAssertEqual(reason, "contains secret")
+        XCTAssertEqual(outcome.decision, .deny)
+        XCTAssertEqual(outcome.reason, "contains secret")
     }
 }
