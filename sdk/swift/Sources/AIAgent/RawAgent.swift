@@ -52,6 +52,39 @@ public struct AgentResult: Sendable, Equatable {
         self.turns = turns
         self.usage = usage
     }
+
+    /// 既知の終了理由。`AgentResult.reason` 文字列の判別を型で行うためのヘルパ。
+    ///
+    /// 文字列比較を避けたい場合に `result.terminationReason == .maxTurns` のように使う。
+    /// 未知の文字列は `.other(raw:)` に落ちる。
+    public enum Termination: Sendable, Equatable {
+        case completed
+        case maxTurns
+        case userFixable
+        case maxConsecutiveFailures
+        case inputDenied
+        case other(raw: String)
+
+        init(_ raw: String) {
+            switch raw {
+            case "completed": self = .completed
+            case "max_turns": self = .maxTurns
+            case "user_fixable": self = .userFixable
+            case "max_consecutive_failures": self = .maxConsecutiveFailures
+            case "input_denied": self = .inputDenied
+            default: self = .other(raw: raw)
+            }
+        }
+    }
+
+    public var terminationReason: Termination { Termination(reason) }
+
+    /// 正常完了か (`reason == "completed"`)。
+    public var isCompleted: Bool { terminationReason == .completed }
+
+    /// ターン上限到達による打ち切り (`reason == "max_turns"`)。
+    /// 旧挙動と異なり例外ではなく正常リターンに乗る。`response` は直近のアシスタント発話。
+    public var isMaxTurns: Bool { terminationReason == .maxTurns }
 }
 
 public typealias StreamCallback = @Sendable (_ text: String, _ turn: Int) async -> Void

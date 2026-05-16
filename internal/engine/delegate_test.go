@@ -100,8 +100,10 @@ func TestDelegateStep_ResultCondensation(t *testing.T) {
 	}
 }
 
-func TestDelegateStep_ChildEngineError(t *testing.T) {
-	// 子 Engine が maxTurns に達した場合、エラーがツール結果として親に返る
+func TestDelegateStep_ChildEngineMaxTurns(t *testing.T) {
+	// 子 Engine が maxTurns に達した場合、ADR-016 以降の挙動では
+	// エラーではなく Result{Reason:"max_turns"} で部分応答が返り、
+	// 親はその凝縮結果をツール出力として受け取る (旧: "Subtask failed")。
 	echoTool := newMockTool("echo", "Echoes")
 
 	// 親maxTurns=5, 子もmaxTurns=5（継承）
@@ -115,10 +117,10 @@ func TestDelegateStep_ChildEngineError(t *testing.T) {
 		responses = append(responses,
 			chatResponse(`{"tool":"echo","arguments":{},"reasoning":"keep going"}`))
 	}
-	// 子Engine maxTurns=5 → ErrMaxTurnsReached → 親に戻る
+	// 子Engine が max_turns で部分応答を返す → 親に凝縮ツール結果として戻る
 	responses = append(responses,
-		chatResponse(`{"tool":"none","arguments":{},"reasoning":"subtask failed"}`),
-		makeResponse("The subtask could not complete.", llm.Usage{}),
+		chatResponse(`{"tool":"none","arguments":{},"reasoning":"subtask exhausted"}`),
+		makeResponse("The subtask exhausted its turn budget.", llm.Usage{}),
 	)
 
 	mock := &mockCompleter{responses: responses}
@@ -129,17 +131,17 @@ func TestDelegateStep_ChildEngineError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 親の履歴にエラー結果が含まれる
-	foundError := false
+	// 親の履歴に「Subtask result」凝縮メッセージが含まれる
+	foundSubtaskResult := false
 	for _, msg := range eng.ctxManager.Messages() {
-		if msg.Role == "tool" && strings.Contains(msg.ContentString(), "Subtask failed") {
-			foundError = true
+		if msg.Role == "tool" && strings.Contains(msg.ContentString(), "Subtask result") {
+			foundSubtaskResult = true
 		}
 	}
-	if !foundError {
-		t.Error("expected subtask failure message in parent history")
+	if !foundSubtaskResult {
+		t.Error("expected '[Subtask result ...]' message in parent history")
 	}
-	if result.Response != "The subtask could not complete." {
+	if result.Response != "The subtask exhausted its turn budget." {
 		t.Errorf("response = %q", result.Response)
 	}
 }

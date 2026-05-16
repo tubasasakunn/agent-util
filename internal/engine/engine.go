@@ -427,6 +427,9 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 	var totalUsage llm.Usage
 	var stepRetries int
 	var consecutiveFailures int
+	// max_turns 到達時に Result.Response として返す、直近のアシスタント発話。
+	// Terminal で抜けた場合はそちらの戻り値で上書きされるため使われない。
+	var lastAssistantText string
 
 	for turn := 0; turn < e.maxTurns; turn++ {
 		select {
@@ -470,6 +473,11 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 		totalUsage.PromptTokens += lr.Usage.PromptTokens
 		totalUsage.CompletionTokens += lr.Usage.CompletionTokens
 		totalUsage.TotalTokens += lr.Usage.TotalTokens
+
+		// max_turns 到達時の部分応答用に直近のアシスタント発話を覚えておく。
+		if t := lr.Message.ContentString(); t != "" {
+			lastAssistantText = t
+		}
 
 		// ステップコールバック（JSON-RPCストリーミング通知用）
 		if e.stepCallback != nil {
@@ -527,7 +535,19 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 			continue
 		}
 	}
-	return nil, ErrMaxTurnsReached
+	// max_turns 到達: エラーではなく Result として返す。Reason="max_turns" で
+	// 呼び出し元が「ターン上限で停止した部分応答」と判別できるようにする。
+	// ErrMaxTurnsReached は後方互換のため残してあるが、Run() からは返さない。
+	e.logf("[done] max turns (%d) reached, returning partial response", e.maxTurns)
+	if lastAssistantText == "" {
+		lastAssistantText = fmt.Sprintf("Stopped after %d turns (max_turns reached)", e.maxTurns)
+	}
+	return &Result{
+		Response: lastAssistantText,
+		Reason:   "max_turns",
+		Usage:    totalUsage,
+		Turns:    e.maxTurns,
+	}, nil
 }
 
 // isFailureReason は連続失敗としてカウントすべき Reason かを判定する。
