@@ -701,6 +701,14 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Opaque OpenAI-compatible ChatRequest."
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Stable session identifier for wrapper-side KV cache (E2)."
+          },
+          "call_index": {
+            "type": "integer",
+            "description": "Sequential index of this llm.execute within a single agent.run."
           }
         }
       },

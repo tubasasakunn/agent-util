@@ -14,15 +14,24 @@ import (
 // ラッパー側の LLM 呼び出しは外部 API を叩く可能性があるためツールよりやや長め。
 const DefaultLLMTimeout = 120 * time.Second
 
+// SessionID の context.Context 伝達は internal/llm/session.go に統合した (E2)。
+
 // RemoteCompleter はラッパー側に LLM 呼び出しを委譲する Completer。
 // llm.Completer インターフェースを実装する。
 //
 // agent.configure で llm.mode="remote" を指定したときに使われる。
 // すべての ChatCompletion 呼び出しが llm.execute (コア → ラッパー) として送られ、
 // ラッパー側で任意の API 形式 (Anthropic / Bedrock / ollama / mock 等) に変換できる。
+//
+// callIndex はインスタンス単位の通し番号で、ラッパーが KV cache や Anthropic の
+// prompt caching を維持するためのヒントとして llm.execute に載せて送る (E2)。
+// 同一 RemoteCompleter を共有するすべての呼び出しでカウントされるため、
+// 厳密な「単一 agent.run 内」と完全一致はしないが、ラッパー側で session_id と
+// 組み合わせれば実用上問題ない。
 type RemoteCompleter struct {
-	server  *Server
-	timeout time.Duration
+	server    *Server
+	timeout   time.Duration
+	callIndex int64 // atomic でなくとも sequence 性は不要 (cache hint なので)
 }
 
 // NewRemoteCompleter は RemoteCompleter を生成する。
@@ -45,7 +54,14 @@ func (c *RemoteCompleter) ChatCompletion(ctx context.Context, req *llm.ChatReque
 		return nil, fmt.Errorf("remote llm: marshal request: %w", err)
 	}
 
-	params := protocol.LLMExecuteParams{Request: reqJSON}
+	// E2: KV cache 用ヒントを ChatRequest と一緒に送る
+	idx := c.callIndex
+	c.callIndex++
+	params := protocol.LLMExecuteParams{
+		Request:   reqJSON,
+		SessionID: llm.SessionIDFromContext(ctx),
+		CallIndex: int(idx),
+	}
 
 	resp, err := c.server.SendRequest(execCtx, protocol.MethodLLMExecute, params)
 	if err != nil {

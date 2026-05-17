@@ -717,6 +717,37 @@ _ = try await raw.configure(CoreAgentConfig(llm: LLMConfig(mode: .remote)))
 - 動作確認の最小例: `sdk/swift/Tests/AIAgentTests/AgentE2ETests.swift` の
   `testLLMRemoteRoutesThroughHandler`
 
+### SessionID 付き llmHandler (E2): KV cache / prompt caching
+
+ラッパー側で Anthropic prompt caching や ollama context を維持したい場合、
+`LLMHandlerWithSession` を使うと **session_id と call_index** が渡される:
+
+```swift
+let cachingLLM: LLMHandlerWithSession = { request, sessionID, callIndex in
+    // sessionID: agent.run スコープの一意 ID (8 byte hex)
+    // callIndex: 同一 run の中で何回目の llm.execute か (0 始まり)
+
+    if callIndex == 0 {
+        // 最初の呼び出し → system prompt に cache_control を付与
+        return try await anthropicWithCacheControl(request, cache: true)
+    } else {
+        // 2 回目以降 → 同じ session の cache を再利用
+        return try await anthropicWithCacheControl(request, cache: false)
+    }
+}
+
+let agent = Agent(config: AgentConfig(
+    binary: "./agent",
+    llmHandlerWithSession: cachingLLM   // 通常 handler より優先
+))
+```
+
+優先順位: `llmHandlerWithSession` > `llmStreamingHandler` > `llmHandler`。
+
+同一 `sessionID` の通し番号 `callIndex` はラッパー実装で自由に活用できる。
+複数の agent インスタンス間で同じ ID が振られることはないので、ローカル LRU
+キャッシュのキーにそのまま使える。
+
 ### ストリーミング版 llmHandler (E1)
 
 `LLMStreamingHandler` で「Anthropic / OpenAI のストリーミング API の chunk を

@@ -297,8 +297,18 @@ type ToolExecuteResult struct {
 // ラッパー側はこれを各バックエンドの形式に変換して呼び出し、結果を Response に詰めて返す。
 // json.RawMessage で透過させることで、将来 ChatRequest にフィールドが増えても
 // プロトコル定義を変えずに渡せる。
+//
+// SessionID はラッパー側で KV cache や Anthropic の prompt caching を維持するための
+// 安定識別子 (E2)。同一の agent.run 内で複数回 llm.execute が呼ばれる場合、
+// 同じ SessionID が渡される。ラッパー側はこれをキーに「前回の prompt prefix が
+// 一致するか」を判定して、Anthropic cache_control や ollama context を再利用できる。
+// 空文字列は識別不能 = キャッシュ無効を意味する。
 type LLMExecuteParams struct {
-	Request json.RawMessage `json:"request"`
+	Request   json.RawMessage `json:"request"`
+	SessionID string          `json:"session_id,omitempty"`
+	// CallIndex は同一 agent.run の中で何回目の llm.execute かを示す (0 始まり)。
+	// SessionID と組み合わせて「最初の prefix が同じならキャッシュ」を判定できる。
+	CallIndex int `json:"call_index,omitempty"`
 }
 
 // LLMExecuteResult は llm.execute の結果。

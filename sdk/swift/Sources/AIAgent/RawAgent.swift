@@ -247,6 +247,17 @@ actor RunObserver {
 /// ChatCompletion 呼び出しがこのハンドラ経由になる。
 public typealias LLMHandler = @Sendable (_ request: JSONValue) async throws -> JSONValue
 
+/// `llm.execute` の SessionID/CallIndex 付き拡張ハンドラ (E2)。
+///
+/// ハンドラは sessionID と callIndex を受け取って、Anthropic prompt caching の
+/// cache_control や ollama の context 再利用などに使える。同一 agent.run 内では
+/// 同じ sessionID が複数回 (callIndex 0,1,2,...) で渡される。
+public typealias LLMHandlerWithSession = @Sendable (
+    _ request: JSONValue,
+    _ sessionID: String,
+    _ callIndex: Int
+) async throws -> JSONValue
+
 /// `llm.execute` のストリーミング版ハンドラ (E1)。
 ///
 /// `onDelta` クロージャを呼ぶたびに、SDK の `streamCallback` に即座に転送される
@@ -286,6 +297,7 @@ public actor RawAgent {
     private var statusEventCallback: StatusEventCallback?
     private var phaseCallback: PhaseCallback?
     private var llmHandler: LLMHandler?
+    private var llmHandlerWithSession: LLMHandlerWithSession?
     private var llmStreamingHandler: LLMStreamingHandler?
     private let observer = RunObserver()
 
@@ -457,6 +469,20 @@ public actor RawAgent {
         self.llmStreamingHandler = handler
         if handler != nil {
             self.llmHandler = nil
+            self.llmHandlerWithSession = nil
+        }
+    }
+
+    /// `llm.execute` の SessionID/CallIndex 付きハンドラを登録 (E2)。
+    ///
+    /// 設定すると通常 handler / streaming handler より優先される。
+    /// ハンドラに `sessionID` と `callIndex` を渡すことで、ラッパー側で
+    /// Anthropic prompt caching や ollama context を維持できる。
+    public func setLLMHandlerWithSession(_ handler: LLMHandlerWithSession?) {
+        self.llmHandlerWithSession = handler
+        if handler != nil {
+            self.llmHandler = nil
+            self.llmStreamingHandler = nil
         }
     }
 
@@ -668,6 +694,19 @@ public actor RawAgent {
 
     private func handleLLMExecute(_ params: JSONValue) async throws -> JSONValue {
         let request = params["request"] ?? .object([:])
+        let sessionID = params["session_id"]?.stringValue ?? ""
+        let callIndex = params["call_index"]?.intValue ?? 0
+
+        // E2: session 情報付き handler が一番優先
+        if let sHandler = llmHandlerWithSession {
+            let response = try await sHandler(request, sessionID, callIndex)
+            if case .object = response {} else {
+                throw AgentError(
+                    "llm handler with session must return a JSON object (OpenAI-style ChatResponse)"
+                )
+            }
+            return .object(["response": response])
+        }
 
         // E1: streaming handler が登録されていればそちらを優先
         if let sHandler = llmStreamingHandler {

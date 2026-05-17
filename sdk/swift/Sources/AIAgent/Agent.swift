@@ -81,6 +81,12 @@ public struct AgentConfig: Sendable {
     /// `onDelta:` に転送される。両方指定された場合、streaming が優先。
     public var llmStreamingHandler: LLMStreamingHandler?
 
+    /// `llm.execute` の SessionID/CallIndex 付きハンドラ (E2)。
+    /// 設定すると llmHandler / llmStreamingHandler より優先される。
+    /// 同一 agent.run 内で同じ sessionID が複数回 callIndex=0,1,2,... で渡される。
+    /// Anthropic prompt caching や ollama context の再利用判定に使う。
+    public var llmHandlerWithSession: LLMHandlerWithSession?
+
     // MARK: - カスタムハンドラ (B1〜B4: start() 内で自動 register される)
 
     /// `Agent.start()` 内で `configure` より前に自動 register されるカスタムツール。
@@ -128,6 +134,7 @@ public struct AgentConfig: Sendable {
         llm: LLMConfig? = nil,
         llmHandler: LLMHandler? = nil,
         llmStreamingHandler: LLMStreamingHandler? = nil,
+        llmHandlerWithSession: LLMHandlerWithSession? = nil,
         customTools: [Tool]? = nil,
         customGuards: [GuardSpec]? = nil,
         customVerifiers: [Verifier]? = nil,
@@ -158,6 +165,7 @@ public struct AgentConfig: Sendable {
         self.llm = llm
         self.llmHandler = llmHandler
         self.llmStreamingHandler = llmStreamingHandler
+        self.llmHandlerWithSession = llmHandlerWithSession
         self.customTools = customTools
         self.customGuards = customGuards
         self.customVerifiers = customVerifiers
@@ -189,9 +197,10 @@ public struct AgentConfig: Sendable {
     }
 
     func toCoreConfig() -> CoreAgentConfig {
-        // llmHandler または llmStreamingHandler が指定されていて llm が未指定なら
-        // 自動で mode: .remote を適用する
-        let hasAnyHandler = llmHandler != nil || llmStreamingHandler != nil
+        // 任意の handler が指定されていて llm が未指定なら自動で mode: .remote
+        let hasAnyHandler = llmHandler != nil
+            || llmStreamingHandler != nil
+            || llmHandlerWithSession != nil
         let effectiveLLM = llm ?? (hasAnyHandler ? LLMConfig(mode: .remote) : nil)
         return CoreAgentConfig(
             maxTurns: maxTurns,
@@ -274,8 +283,10 @@ public actor Agent {
 
         // configure より前に llm.execute ハンドラを差し込む
         // (configure 直後に LLM 呼び出しが走る可能性があるため)
-        // E1: streaming は通常 handler より優先する
-        if let sh = config.llmStreamingHandler {
+        // 優先順位: session 付き > streaming > 通常
+        if let h = config.llmHandlerWithSession {
+            await raw.setLLMHandlerWithSession(h)
+        } else if let sh = config.llmStreamingHandler {
             await raw.setLLMStreamingHandler(sh)
         } else if let handler = config.llmHandler {
             await raw.setLLMHandler(handler)

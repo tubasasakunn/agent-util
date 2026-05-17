@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
@@ -14,6 +16,17 @@ import (
 
 // defaultCoordinatorMaxParallelism は coordinate_tasks の並列実行上限のデフォルト値。
 const defaultCoordinatorMaxParallelism = 10
+
+// newSessionID は agent.run スコープのユニークな ID を生成する (E2)。
+// 16 進 16 文字 (8 byte) で十分な一意性を確保する。失敗時は固定値を返す
+// (一意性は失われるが、KV cache のヒントなので致命的ではない)。
+func newSessionID() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "fallback"
+	}
+	return hex.EncodeToString(buf[:])
+}
 
 // Engine はエージェントループを管理する。
 type Engine struct {
@@ -421,6 +434,10 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 			}, nil
 		}
 	}
+
+	// E2: ラッパー側 KV cache のヒント用に agent.run スコープの session_id を発番。
+	// ctx に載せると ChatCompletion 経路を通じて RemoteCompleter まで届く。
+	ctx = llm.WithSessionID(ctx, newSessionID())
 
 	e.ctxManager.Add(UserMessage(input))
 	e.logf("[context] %d/%d tokens (%.0f%%)",
