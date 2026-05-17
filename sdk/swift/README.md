@@ -828,6 +828,49 @@ let results = try await agent.batch(
 )
 ```
 
+### `fork/branch/batch` (SDK) と `DelegateConfig` (コア) の責務分離 (C4)
+
+両者は混乱されがちだが **別レイヤの機能** で、目的が異なる:
+
+```
+┌─────────────────────────────┐    ┌────────────────────────────────────┐
+│ Swift SDK レイヤ              │    │ Go コアレイヤ                       │
+│                             │    │                                    │
+│  Agent.fork() / .branch()   │    │  AgentConfig.delegate.enabled=true │
+│  Agent.batch()              │    │  AgentConfig.coordinator.enabled   │
+│                             │    │                                    │
+│  → ホスト側 (Swift) から      │    │  → LLM が中で                      │
+│    明示的に子プロセスを       │    │    delegate_task /                 │
+│    Fork する                 │    │    coordinate_tasks ツールを       │
+│                             │    │    選んで自動委譲する                │
+│  ホストが完全制御             │    │  LLM が選択 (不確定性あり)            │
+└─────────────────────────────┘    └────────────────────────────────────┘
+```
+
+| 観点                  | `fork() / branch() / batch()`                | `DelegateConfig` / `CoordinatorConfig`            |
+| --------------------- | -------------------------------------------- | ------------------------------------------------- |
+| 起動の主体            | **ホスト側 Swift コード**                   | **LLM ルーターが選択** (delegate_task ツール)      |
+| 起動の不確定性        | なし: 必ず作られる                            | あり: SLLM がツールを選ぶか次第                    |
+| 子の会話履歴          | 親から複製/抜粋 (`fork` は全部、`branch` は途中から) | 空 (各サブタスク用に system_prompt のみ)      |
+| 子の終了後            | 子は独立、`add()` `addSummary()` で結果を取り込む | コアが自動で `[Subtask result ...]` を親履歴に追加 |
+| サブの可観測性        | Swift から `child.inputVerbose(...).toolCalls` で取れる | コア内部で実行、親の `result.toolCalls` には含まれない (本リリース時点) |
+| 並列実行              | `batch()` が `maxConcurrency` で制御         | `coordinator.enabled=true` で LLM 側から並列指示    |
+| ユースケース           | テスト/A-Bテスト、確定的 N 並列実行         | 「タスクが大きそうなら分割」を LLM に任せたい場合 |
+
+つまり **「Swift 側から確実に子を作る」なら fork/branch/batch**、
+**「LLM に判断させて自動で子を作る」なら DelegateConfig / CoordinatorConfig**。
+
+両方は併用可能 — `batch()` で並列フォークした各子エージェントが、内部で
+`delegate_task` を呼んでさらに孫を作る、というネスト構造も成立する。
+
+#### 実装上の注意 (C5)
+
+現バージョンでは、**`DelegateConfig` 起動された子エージェントのツール呼び出しは
+親の `AgentResult.toolCalls` には含まれない** (子の `core` インスタンスが別 actor
+のため)。子の動作を観測したい場合は `fork()` で明示的に子を作り、
+`child.inputVerbose(...)` から `toolCalls` / `guardFires` を取る方が確実。
+将来的に `context.status` 通知に「サブエージェント開始/終了」イベントを足す予定。
+
 ## RAG 検索 / 会話要約
 
 ```swift
