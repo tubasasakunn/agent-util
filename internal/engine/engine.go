@@ -48,17 +48,17 @@ type Engine struct {
 	toolScope                 *ToolScope
 	// toolCalls は per-run の同一ツール呼び出し回数 (A1/A4 toolBudget 用)。
 	// Run() 冒頭でリセットし、ツール実行成功ごとにインクリメントする。
-	toolCalls map[string]int
-	maxStepRetries            int
-	maxConsecutiveFailures    int
-	verifiers                 *VerifierRegistry
-	permChecker               *PermissionChecker // nil なら全許可（後方互換）
-	guards                    *GuardRegistry     // nil ならガードなし（後方互換）
-	stepCallback              StepCallback       // nil ならコールバックなし
-	streamingEnabled          bool
-	streamCallback            StreamCallback
-	contextStatusCallback     ContextStatusCallback
-	skillToolNames            map[string]struct{}
+	toolCalls              map[string]int
+	maxStepRetries         int
+	maxConsecutiveFailures int
+	verifiers              *VerifierRegistry
+	permChecker            *PermissionChecker // nil なら全許可（後方互換）
+	guards                 *GuardRegistry     // nil ならガードなし（後方互換）
+	stepCallback           StepCallback       // nil ならコールバックなし
+	streamingEnabled       bool
+	streamCallback         StreamCallback
+	contextStatusCallback  ContextStatusCallback
+	skillToolNames         map[string]struct{}
 	// ループパターンと拡張コンポーネント
 	loopType        LoopType
 	routerCompleter llm.Completer // nil なら completer を使用
