@@ -28,10 +28,11 @@ Python と同じ感覚 (`fork()` / `branch()` / `batch()` / `search()` / `contex
 11. [LLM ハンドラ (任意 API 形式で叩く)](#llm-ハンドラ-任意-api-形式で叩く)
 12. [フォーク / ブランチ / バッチ](#フォーク--ブランチ--バッチ)
 13. [RAG 検索 / 会話要約](#rag-検索--会話要約)
-14. [JSONValue リファレンス](#jsonvalue-リファレンス)
-15. [エラーハンドリング](#エラーハンドリング)
-16. [テスト](#テスト)
-17. [実装メモ](#実装メモ)
+14. [小型モデル向けチューニング指針](#小型モデル向けチューニング指針-h4)
+15. [JSONValue リファレンス](#jsonvalue-リファレンス)
+16. [エラーハンドリング](#エラーハンドリング)
+17. [テスト](#テスト)
+18. [実装メモ](#実装メモ)
 
 ## TL;DR
 
@@ -355,6 +356,35 @@ JudgeConfig(name: "goal")
 
 camelCase で書いて、JSON 送信時に自動で snake_case に変換される。
 
+#### `CompactionConfig` の 4 段カスケード (ADR-005)
+
+`enabled: true` で会話履歴がトークン上限に近づいたとき、以下の 4 段の縮約戦略が
+順に試される。前の段で目標サイズに収まれば次の段は走らない。
+
+| 段                    | 戦略                                                                  |
+| --------------------- | --------------------------------------------------------------------- |
+| 1. ツール結果トリム     | tool ロールメッセージの content を `budgetMaxChars` の 1/2 程度で切る  |
+| 2. アシスタント中間刈り | 古いアシスタント発話のうち `keepLast` 件より前を削除                    |
+| 3. ユーザー圧縮         | 古いユーザー発話を要約マーカーで置き換え                                |
+| 4. LLM 要約             | `summarizer: "llm"` のときに残り全体を LLM で要約 → 単一 system に置換 |
+
+パラメータ:
+- `budgetMaxChars` — 縮約後に目指す総文字数 (推奨: token 上限の 60〜70% 相当)
+- `keepLast` — 直近何件のアシスタント発話を必ず残すか (推奨 3〜5)
+- `targetRatio` — 縮約発火しきい値 (0.0〜1.0)。`token_count / token_limit` がこの値を
+  超えたら起動
+- `summarizer` — `"none"` (省略) / `"truncate"` (機械的) / `"llm"` (LLM 要約)
+
+#### `LoopConfig.type` のループパターン
+
+| 値          | 動作                                                                     |
+| ----------- | ------------------------------------------------------------------------ |
+| `"react"`   | デフォルト。ルーター → ツール → レスポンスの ReAct ループ                 |
+| `"reaf"`    | ReAF。各ツール実行後に Verifier 評価ステップを挟む。`verify` 設定必須      |
+
+`"reaf"` を使う場合は `VerifyConfig(verifiers: [...])` の登録が必須。各ツール結果に対し
+`verifier.execute` が走り、`passed=false` のときは `maxStepRetries` 内でリトライする。
+
 ## ツール / ガード / ベリファイア / ジャッジ
 
 ### `Tool`
@@ -380,38 +410,45 @@ public enum ToolReturn: Sendable {
 
 ### `GuardSpec`
 
+戻り値は `GuardOutcome` (struct)。タプル風の 2 引数 init / `.allow` / `.deny(_:)`
+/ `.tripwire(_:)` のショートカットが利用可能 (D3 で型化)。
+
 ```swift
 GuardSpec.input(name: "no_secrets") { input in
-    input.contains("password") ? (.deny, "secret detected") : (.allow, "")
+    input.contains("password") ? .deny("secret detected") : .allow
 }
 
 GuardSpec.toolCall(name: "fs_root_only") { toolName, args in
     let path = args["path"]?.stringValue ?? ""
-    return path.hasPrefix("/") ? (.deny, "root path") : (.allow, "")
+    return path.hasPrefix("/") ? .deny("root path") : .allow
 }
 
 GuardSpec.output(name: "pii_redactor") { output in
-    output.contains("@") ? (.deny, "looks like email") : (.allow, "")
+    output.contains("@") ? .deny("looks like email") : .allow
 }
 ```
 
-戻り値は `(GuardDecision, String)`。`GuardDecision` は `.allow` / `.deny` /
-`.tripwire`。
+`GuardDecision` は `.allow` / `.deny` / `.tripwire`。
+`tripwire` を返すと `TripwireTriggered` が SDK 側で throw される (重大ガード)。
 
 ### `Verifier`
 
+戻り値は `VerifierOutcome` (struct)。`.pass` / `.fail(_:)` ショートカット利用可。
+
 ```swift
 let nonEmpty = Verifier(name: "non_empty") { toolName, args, result in
-    (!result.isEmpty, result.isEmpty ? "result empty" : "ok")
+    result.isEmpty ? .fail("result empty") : .pass
 }
 try await agent.registerVerifiers(nonEmpty)
 ```
 
 ### ジャッジ (ゴール達成判定)
 
+戻り値は `JudgeOutcome`。`.continue` / `.done(_:)` ショートカット利用可。
+
 ```swift
 try await agent.registerJudge("goal") { response, turn in
-    return (response.contains("FINAL ANSWER"), "marker detected")
+    response.contains("FINAL ANSWER") ? .done("marker detected") : .continue
 }
 
 // AgentConfig(judge: JudgeConfig(name: "goal")) で有効化
@@ -433,6 +470,51 @@ try await agent.registerMCP(transport: "sse", url: "https://...")
 // スキルディレクトリ (各サブの skill.json / mcp.json / config.json を読む)
 try await agent.registerSkills("./skills/")
 ```
+
+### スキル設定ファイルのスキーマ (H1)
+
+`registerSkills(_:)` はディレクトリ直下の各サブディレクトリを走査し、
+以下の優先順で 1 ファイルを読み込む:
+
+1. `skill.json`
+2. `mcp.json`
+3. `config.json`
+
+ファイル形式は **MCP 設定 (stdio または sse)** の JSON で、フィールドは以下:
+
+```jsonc
+// stdio トランスポート
+{
+  "transport": "stdio",          // 省略時は "stdio"
+  "command": "uvx",               // 必須 (stdio のみ): 起動コマンド
+  "args": ["mcp-server-fetch"],  // 省略可: 引数配列
+  "env": {                        // 省略可: 追加環境変数
+    "API_KEY": "sk-..."
+  }
+}
+
+// SSE トランスポート
+{
+  "transport": "sse",
+  "url": "https://api.example.com/mcp"  // 必須 (sse のみ)
+}
+```
+
+ディレクトリ構造の例:
+
+```
+skills/
+├── fetch/
+│   └── skill.json          # mcp-server-fetch を起動する設定
+├── filesystem/
+│   └── mcp.json            # mcp-server-filesystem を起動する設定
+└── custom/
+    └── config.json         # 任意のサーバ
+```
+
+各スキルディレクトリの 1 ファイルが MCP セッションとして接続され、
+公開ツールがすべて Agent に登録される。1 つでもエラーになっても残りは
+処理される (登録できたツール名の配列が返る)。
 
 ## ストリーミング
 
@@ -536,6 +618,97 @@ _ = try await raw.configure(CoreAgentConfig(llm: LLMConfig(mode: .remote)))
 - 動作確認の最小例: `sdk/swift/Tests/AIAgentTests/AgentE2ETests.swift` の
   `testLLMRemoteRoutesThroughHandler`
 
+### 完全ローカル化サンプル (H3): URLSession + Anthropic Messages API
+
+`SLLM_ENDPOINT` を一切立てず、ホスト側 Swift から Anthropic の Messages API
+を叩く完全な例。**`llmHandler` だけで成立する** (ローカル LLM サーバ不要)。
+
+```swift
+import AIAgent
+import Foundation
+
+func anthropicMessagesHandler(apiKey: String) -> LLMHandler {
+    return { request in
+        // 1. OpenAI 互換 ChatRequest → Anthropic Messages 形式に変換
+        let messages = (request["messages"]?.arrayValue ?? [])
+            .filter { $0["role"]?.stringValue != "system" }
+            .map { msg -> JSONValue in
+                .object([
+                    "role": .string(msg["role"]?.stringValue == "assistant" ? "assistant" : "user"),
+                    "content": .string(msg["content"]?.stringValue ?? ""),
+                ])
+            }
+        let systemPrompt = (request["messages"]?.arrayValue ?? [])
+            .first(where: { $0["role"]?.stringValue == "system" })?
+            ["content"]?.stringValue ?? ""
+
+        var anthReq: [String: JSONValue] = [
+            "model": .string(request["model"]?.stringValue ?? "claude-haiku-4-5-20251001"),
+            "max_tokens": .int(4096),
+            "messages": .array(messages),
+        ]
+        if !systemPrompt.isEmpty { anthReq["system"] = .string(systemPrompt) }
+
+        // 2. HTTP リクエスト
+        let body = try JSONSerialization.data(withJSONObject: JSONValue.object(anthReq).toRaw())
+        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.httpBody = body
+
+        let (data, _) = try await URLSession.shared.data(for: req)
+        let raw = try JSONSerialization.jsonObject(with: data)
+        let resp = JSONValue.from(raw)
+
+        // 3. Anthropic レスポンス → OpenAI 互換 ChatResponse に変換して返す
+        let content = resp["content"]?.arrayValue?
+            .compactMap { $0["text"]?.stringValue }
+            .joined() ?? ""
+
+        return .object([
+            "id": resp["id"] ?? .string("anth-1"),
+            "object": .string("chat.completion"),
+            "created": .int(Int64(Date().timeIntervalSince1970)),
+            "model": resp["model"] ?? .string("claude"),
+            "choices": .array([.object([
+                "index": .int(0),
+                "message": .object([
+                    "role": .string("assistant"),
+                    "content": .string(content),
+                ]),
+                "finish_reason": .string("stop"),
+            ])]),
+            "usage": .object([
+                "prompt_tokens": resp["usage"]?["input_tokens"] ?? .int(0),
+                "completion_tokens": resp["usage"]?["output_tokens"] ?? .int(0),
+                "total_tokens": .int(
+                    (resp["usage"]?["input_tokens"]?.intValue ?? 0)
+                    + (resp["usage"]?["output_tokens"]?.intValue ?? 0)
+                ),
+            ]),
+        ])
+    }
+}
+
+// 使用例 — SLLM_ENDPOINT / SLLM_API_KEY は一切設定しない
+let agent = Agent(config: AgentConfig(
+    binary: "./agent",
+    systemPrompt: "あなたは親切なアシスタントです。",
+    maxTurns: 10,
+    llmHandler: anthropicMessagesHandler(apiKey: "sk-ant-...")
+))
+let reply = try await agent.input("こんにちは")
+```
+
+ポイント:
+- `env` (SLLM_ENDPOINT/SLLM_API_KEY) を空のまま渡しても動く
+- `llmHandler` を渡すと `LLMConfig(mode: .remote)` が自動適用される
+- ルーターステップ用 (response_format=json_object) と応答生成用は **同一 handler** で
+  処理する。判別したい場合は `request["response_format"]?["type"]?.stringValue == "json_object"`
+  でフラグ立てして、ルーター時に出力を JSON 文字列に強制すること
+
 ## フォーク / ブランチ / バッチ
 
 ```swift
@@ -569,6 +742,90 @@ let hits = await agent.search("Tokyo", topK: 5)
 let summary = try await agent.context()
 print(summary)
 ```
+
+## 小型モデル向けチューニング指針 (H4)
+
+E2B (Gemma 4 E2B など 1〜3B クラス) や Qwen-1.5B のような SLLM で動かす際の
+**実用的な設定の出発点**。
+
+### 推奨初期値
+
+```swift
+let config = AgentConfig(
+    binary: "./agent",
+    env: [
+        "SLLM_ENDPOINT": "http://localhost:8080/v1/chat/completions",
+        "SLLM_API_KEY": "sk-local",
+    ],
+    systemPrompt: "あなたは正確な日本語で簡潔に答えるアシスタントです。",
+    maxTurns: 10,                       // 小型は長いほど暴走しやすい
+    tokenLimit: 8000,                   // モデルのコンテキスト × 0.8 を目安
+    compaction: CompactionConfig(       // 必ず有効化
+        enabled: true,
+        budgetMaxChars: 6000,
+        keepLast: 3,
+        targetRatio: 0.6,
+        summarizer: "truncate"          // LLM 要約は小型では精度が落ちる
+    ),
+    permission: PermissionConfig(       // 危険ツールは明示拒否
+        enabled: true,
+        deny: ["shell", "fs_write_*"],
+        allow: nil
+    ),
+    toolScope: ToolScopeConfig(
+        maxTools: 5,                    // ルーター精度を上げる
+        includeAlways: ["finish"]
+    ),
+    reminder: ReminderConfig(           // 暴走防止リマインダ
+        threshold: 4,
+        content: "簡潔に。1 ターンに 1 ツールだけ。"
+    ),
+    streaming: StreamingConfig(enabled: true, contextStatus: true),
+    loop: LoopConfig(type: "react"),    // ReAF は小型では verifier 精度不足
+    judge: JudgeConfig(name: "concise") // judge 必須 (本文参照)
+)
+```
+
+### 各パラメータの効きどころ
+
+| 設定                       | 値               | 理由                                                                       |
+| -------------------------- | ---------------- | -------------------------------------------------------------------------- |
+| `maxTurns`                 | 8〜12            | 上を増やすほど無限ループ気味になる。max_turns 到達は正常終了 (A3)            |
+| `tokenLimit`               | ctx \* 0.8       | コンパクション余地を確保。8K モデルなら 6000〜6500                          |
+| `compaction.summarizer`    | `"truncate"`     | LLM 要約は小型では会話の文脈を歪めるので非推奨                              |
+| `compaction.keepLast`      | 2〜3             | 直近を確実に残し、それより前を縮める                                       |
+| `toolScope.maxTools`       | 3〜5             | ルーターが選択に迷うのを防ぐ                                               |
+| `reminder.threshold`       | 3〜5 ターン      | 「1 回しか呼ぶな」のような指示はリマインダで毎ターン再注入                  |
+| `judge`                    | カスタム必須     | デフォルト judge がないため、応答長 / キーワード判定で `done` を返す       |
+| `LLMConfig.timeoutSeconds` | 30〜60           | 小型モデルは遅いので、HTTP は長めに                                        |
+
+### Judge の必須実装例
+
+小型モデルは「答え終わったのに finish ツールを呼ばない」ことが頻発する。
+**応答長と内容で完了を判定する judge は必須に近い**:
+
+```swift
+let isConcise: JudgeHandler = { response, turn in
+    // 30 文字以上の自然言語応答が出たら done
+    if response.count >= 30 && !response.contains("```") {
+        return .done("response is long enough")
+    }
+    return .continue
+}
+
+try await agent.registerJudge("concise", isConcise)
+```
+
+`AgentConfig(judge: JudgeConfig(name: "concise"))` で結びつける。
+Phase 3-1 で予定している `defaultJudge` が実装されるまでは利用側で必須。
+
+### 動作確認したモデル
+
+| モデル                | endpoint                                   | 推奨 maxTurns | 注記                       |
+| --------------------- | ------------------------------------------ | ------------- | -------------------------- |
+| Gemma 4 E2B (local)   | `http://localhost:8080/v1/chat/completions`| 10            | このリポジトリの主用       |
+| Qwen2.5-3B (ollama)   | `http://localhost:11434/v1/chat/completions`| 10            | ollama デフォルトでも動作  |
+| Llama-3.2-3B (ollama) | `http://localhost:11434/v1/chat/completions`| 8             | finish 検出弱め、judge 厚く |
 
 ## JSONValue リファレンス
 
@@ -614,32 +871,107 @@ let v = JSONValue.from(["a": 1, "b": [true, false]])
 
 ## エラーハンドリング
 
+`AgentError` は `LocalizedError` 準拠なので `error.localizedDescription` で
+有意な文字列が得られる (`"The operation couldn't be completed."` のような
+汎用文字列ではない)。エラー分岐は **クラスでも `kind` でも** 可能。
+
+### kind ベースの分岐 (推奨)
+
 ```swift
 do {
     _ = try await agent.input("...")
-} catch let e as TripwireTriggered {
-    alertSecurityTeam(e.reason)
-} catch let e as GuardDenied {
-    print("拒否: \(e.reason)")
-} catch is AgentBusy {
-    print("既に別の run が実行中")
-} catch is AgentAborted {
-    print("abort されました")
-} catch let e as ToolError {
-    print("ツール失敗: \(e)")
 } catch let e as AgentError {
-    print("SDK エラー: \(e)")
+    switch e.kind {
+    case .tripwireTriggered:    alertSecurityTeam(e.message)
+    case .guardDenied:          print("拒否: \(e.message)")
+    case .toolNotFound:         print("ツール未登録")
+    case .agentBusy:            print("別 run 中")
+    case .aborted:              print("中断")
+    case .maxTurnsReached:      print("ターン上限") // 通常は AgentResult.isMaxTurns
+    case .other(let code):      print("RPC エラー code=\(String(describing: code))")
+    default:                    print(e.localizedDescription)
+    }
+    if let stderr = e.data?["stderr_tail"]?.stringValue {
+        print("--- stderr tail ---\n\(stderr)")
+    }
 }
 ```
 
-| クラス              | JSON-RPC code      | 発生条件                                       |
-| ------------------- | ------------------ | ---------------------------------------------- |
-| `AgentBusy`         | `-32002`           | 既に別の `agent.run` が実行中                  |
-| `AgentAborted`      | `-32003`           | `abort()` でキャンセル                          |
-| `ToolError`         | `-32000` / `-32001`| ツールが見つからない / 実行失敗                |
-| `GuardDenied`       | `-32005`           | ガードが `deny` を返した                        |
-| `TripwireTriggered` | `-32006`           | tripwire ガード発火 (`GuardDenied` のサブクラス) |
-| `AgentError`        | その他              | SDK 基底クラス                                  |
+### サブクラスでの分岐 (旧 API 互換)
+
+```swift
+do {
+    _ = try await agent.input("...")
+} catch let e as TripwireTriggered { alertSecurityTeam(e.reason) }
+catch let e as GuardDenied         { print("拒否: \(e.reason)") }
+catch is AgentBusy                 { print("既に別の run が実行中") }
+catch is AgentAborted              { print("abort されました") }
+catch let e as ToolError           { print("ツール失敗: \(e.localizedDescription)") }
+catch let e as AgentError          { print(e.localizedDescription) }
+```
+
+### エラーコード対照
+
+| クラス              | `kind`               | JSON-RPC code      | 発生条件                                |
+| ------------------- | -------------------- | ------------------ | --------------------------------------- |
+| `AgentError` (基底) | `.other(code:)`      | その他              | SDK 基底クラス                          |
+| `AgentBusy`         | `.agentBusy`         | `-32002`           | 既に別の `agent.run` が実行中            |
+| `AgentAborted`     | `.aborted`           | `-32003`           | `abort()` でキャンセル                    |
+| (なし)              | `.messageTooLarge`   | `-32004`           | メッセージサイズ超過                    |
+| `ToolError`         | `.toolNotFound`/`.toolExecutionFailed` | `-32000`/`-32001` | ツール未登録 / 実行失敗 |
+| `GuardDenied`       | `.guardDenied`       | `-32005`           | ガードが `deny` を返した                  |
+| `TripwireTriggered` | `.tripwireTriggered` | `-32006`           | tripwire ガード発火                       |
+| (なし)              | `.maxTurnsReached`   | `-32603` + msg     | ターン上限 (現バージョンでは AgentResult として返るため通常は発生しない) |
+
+### `max_turns` 到達は **エラーではない** (A3)
+
+旧バージョン (< 0.2.2) では `max_turns` 到達は `AgentError(code=-32603)` で
+throw されていた。**現バージョン以降は `AgentResult` で正常 return** し、
+`response` に直近のアシスタント発話が、`reason` に `"max_turns"` が入る:
+
+```swift
+let result = try await agent.inputVerbose("...")
+if result.isMaxTurns {
+    print("ターン上限で停止: \(result.response)")
+    // result.toolCalls で何のツールが呼ばれたか確認可能
+}
+```
+
+### バイナリのバージョン整合チェック (E3)
+
+`AgentConfig.versionCheck` で `start()` 時のハンドシェイク挙動を変えられる:
+
+| 値      | 動作                                                           |
+| ------- | -------------------------------------------------------------- |
+| `.warn` | (デフォルト) 不一致なら stderr に警告を書いて続行              |
+| `.strict` | 不一致なら `AgentError` を throw して `start()` を失敗させる |
+| `.skip` | ハンドシェイクをスキップ (旧バイナリ互換用)                    |
+
+旧バイナリ (`server.info` 未実装) は `-32601` を返すため、SDK は明確な案内文を
+出す: `binary does not implement server.info ... Rebuild the agent binary...`。
+
+### 観測性: run 実行中に何が呼ばれたか (G1〜G4)
+
+`inputVerbose` の `AgentResult` には以下のフィールドが入る:
+
+```swift
+let result = try await agent.inputVerbose(
+    "コードレビューして",
+    onPhase: { phase in print("[phase] \(phase.rawValue)") }
+)
+
+// G1/G2: ツール呼び出し履歴
+print("呼ばれたツール: \(result.toolCalls.map { $0.name })")
+let echoCount = result.toolCalls.filter { $0.name == "echo" }.count
+
+// G4: ガード/ベリファイア/ジャッジ発火履歴
+for fire in result.guardFires {
+    print("[\(fire.kind)] \(fire.name) → \(fire.decision): \(fire.reason)")
+}
+
+// G3: フェーズ通知 (onPhase に渡したコールバック経由)
+// .routing → .tool → .guarding → .generating
+```
 
 ## テスト
 
