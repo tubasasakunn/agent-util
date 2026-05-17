@@ -1216,8 +1216,9 @@ Swift で実装する上で踏んだ落とし穴。同様の SDK を作る人向
 
 - [`../../docs/openrpc.json`](../../docs/openrpc.json) — OpenRPC 1.2.6 完全仕様
 - [`../../docs/schemas/`](../../docs/schemas/) — 各型の JSON Schema
+- [`../../docs/BINARY_DISTRIBUTION.md`](../../docs/BINARY_DISTRIBUTION.md) — F5 バイナリ配布レシピ (Apple Silicon、ユニバーサル、Codesign、App Sandbox)
 - [`../../pkg/protocol/methods.go`](../../pkg/protocol/methods.go) — Go 側の真実の源
 - [`../README.md`](../README.md) — SDK 全体のハブ
 - [`../python/`](../python/) — 兄弟 Python SDK (同じ AOM)
 - [`../js/`](../js/) — 兄弟 Node SDK
-- ADR-001 (JSON-RPC over stdio), ADR-013 (RemoteTool アダプタ)
+- ADR-001 (JSON-RPC over stdio), ADR-013 (RemoteTool アダプタ), ADR-016 (llm.execute 逆 RPC)
