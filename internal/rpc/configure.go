@@ -202,8 +202,8 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 			statusEnabled = *p.Streaming.ContextStatus
 		}
 		if statusEnabled && notifier != nil {
-			opts = append(opts, engine.WithContextStatusCallback(func(ratio float64, count, limit int) {
-				_ = notifier.ContextStatus(ratio, count, limit)
+			opts = append(opts, engine.WithContextStatusCallback(func(ratio float64, count, limit int, event, lastRole string, compactionDelta int) {
+				_ = notifier.ContextStatusWithEvent(ratio, count, limit, event, lastRole, compactionDelta)
 			}))
 		}
 		applied = append(applied, "streaming")

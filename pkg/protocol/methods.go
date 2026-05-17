@@ -424,10 +424,28 @@ type StreamEndParams struct {
 // --- context.status (通知) ---
 
 // ContextStatusParams は context.status のパラメータ。
+//
+// ラッパー側 (SDK) は UsageRatio / TokenCount / TokenLimit でゲージを描き、
+// LastEvent / LastMessageRole / CompactionDelta で「今何が起きたか」を表示できる
+// (C1/C2/C3/C5)。LastEvent が "compacted" なら CompactionDelta に縮約された
+// トークン数が入る。
 type ContextStatusParams struct {
 	UsageRatio float64 `json:"usage_ratio"`
 	TokenCount int     `json:"token_count"`
 	TokenLimit int     `json:"token_limit"`
+	// LastEvent は直近で発生した文脈イベント。可能な値:
+	//   "user_added"      ユーザーメッセージが履歴に追加された
+	//   "assistant_added" assistant メッセージが履歴に追加された
+	//   "tool_added"      tool 結果が履歴に追加された
+	//   "compacted"       compaction カスケードが走った
+	//   ""                未指定 (周期的なゲージ更新)
+	LastEvent string `json:"last_event,omitempty"`
+	// LastMessageRole は直近に追加されたメッセージの role。
+	// "user" / "assistant" / "tool" 等。LastEvent と紐づく。
+	LastMessageRole string `json:"last_message_role,omitempty"`
+	// CompactionDelta は LastEvent == "compacted" の場合、縮約で削減された
+	// トークン数。
+	CompactionDelta int `json:"compaction_delta,omitempty"`
 }
 
 // --- session.history ---

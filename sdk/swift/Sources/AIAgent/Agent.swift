@@ -466,6 +466,7 @@ public actor Agent {
         maxTurns: Int? = nil,
         onDelta: StreamCallback? = nil,
         onStatus: StatusCallback? = nil,
+        onStatusEvent: StatusEventCallback? = nil,
         onPhase: PhaseCallback? = nil,
         timeout: Duration? = nil
     ) async throws -> String {
@@ -474,6 +475,7 @@ public actor Agent {
             maxTurns: maxTurns,
             onDelta: onDelta,
             onStatus: onStatus,
+            onStatusEvent: onStatusEvent,
             onPhase: onPhase,
             timeout: timeout
         )
@@ -485,6 +487,7 @@ public actor Agent {
         maxTurns: Int? = nil,
         onDelta: StreamCallback? = nil,
         onStatus: StatusCallback? = nil,
+        onStatusEvent: StatusEventCallback? = nil,
         onPhase: PhaseCallback? = nil,
         timeout: Duration? = nil
     ) async throws -> AgentResult {
@@ -494,6 +497,7 @@ public actor Agent {
             maxTurns: maxTurns,
             stream: onDelta,
             onStatus: onStatus,
+            onStatusEvent: onStatusEvent,
             onPhase: onPhase,
             timeout: timeout
         )

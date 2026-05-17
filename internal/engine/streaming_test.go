@@ -174,7 +174,7 @@ func TestStreaming_ContextStatusCallback(t *testing.T) {
 		counts []int
 		limits []int
 	)
-	cb := func(ratio float64, count, limit int) {
+	cb := func(ratio float64, count, limit int, _, _ string, _ int) {
 		mu.Lock()
 		defer mu.Unlock()
 		ratios = append(ratios, ratio)

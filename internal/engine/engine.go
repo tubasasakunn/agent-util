@@ -425,7 +425,7 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 	e.ctxManager.Add(UserMessage(input))
 	e.logf("[context] %d/%d tokens (%.0f%%)",
 		e.ctxManager.TokenCount(), e.ctxManager.TokenLimit(), e.ctxManager.UsageRatio()*100)
-	e.emitContextStatus()
+	e.emitContextStatusWith("user_added", "user", 0)
 
 	// A1/A4: toolBudget 用にツール呼び出しカウンタを run 単位でリセット
 	e.toolCalls = make(map[string]int)
@@ -596,12 +596,22 @@ func (e *Engine) maybeCompact(ctx context.Context) error {
 	after := e.ctxManager.TokenCount()
 	e.logf("[context] compaction complete: %d → %d tokens (%.0f%%)",
 		before, after, e.ctxManager.UsageRatio()*100)
-	e.emitContextStatus()
+	delta := before - after
+	if delta < 0 {
+		delta = 0
+	}
+	e.emitContextStatusWith("compacted", "", delta)
 	return nil
 }
 
 // emitContextStatus は contextStatusCallback が設定されていれば現在のコンテキスト使用率を通知する。
+// 周期的なゲージ更新用。event 情報なし。
 func (e *Engine) emitContextStatus() {
+	e.emitContextStatusWith("", "", 0)
+}
+
+// emitContextStatusWith は event 情報付きで通知する (C1/C2/C3/C5)。
+func (e *Engine) emitContextStatusWith(event, lastRole string, compactionDelta int) {
 	if e.contextStatusCallback == nil {
 		return
 	}
@@ -609,6 +619,9 @@ func (e *Engine) emitContextStatus() {
 		e.ctxManager.UsageRatio(),
 		e.ctxManager.TokenCount(),
 		e.ctxManager.TokenLimit(),
+		event,
+		lastRole,
+		compactionDelta,
 	)
 }
 

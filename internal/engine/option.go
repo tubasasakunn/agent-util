@@ -66,7 +66,12 @@ type StepCallback func(StepEvent)
 type StreamCallback func(delta string, turn int)
 
 // ContextStatusCallback はコンテキスト使用率の変化を受け取るコールバック関数型。
-type ContextStatusCallback func(ratio float64, count, limit int)
+//
+// event / lastRole / compactionDelta は C1/C2/C3/C5 で追加された観測情報。
+// 周期的なゲージ更新では event="" / lastRole="" / compactionDelta=0 となる。
+// 履歴イベント発生時は event に "user_added"/"assistant_added"/"tool_added"/"compacted"
+// が入り、lastRole にメッセージの role が入る。
+type ContextStatusCallback func(ratio float64, count, limit int, event, lastRole string, compactionDelta int)
 
 const defaultSystemPrompt = "You are a helpful assistant."
 

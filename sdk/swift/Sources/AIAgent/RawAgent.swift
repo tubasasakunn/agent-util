@@ -182,6 +182,41 @@ public struct AgentResult: Sendable, Equatable {
 
 public typealias StreamCallback = @Sendable (_ text: String, _ turn: Int) async -> Void
 public typealias StatusCallback = @Sendable (_ usageRatio: Double, _ count: Int, _ limit: Int) async -> Void
+
+/// `context.status` の拡張情報 (C1/C2/C3/C5)。
+///
+/// - `event`: "user_added" / "assistant_added" / "tool_added" / "compacted" / ""
+/// - `lastMessageRole`: 直近に積まれたメッセージの role
+/// - `compactionDelta`: event=="compacted" なら削減トークン数
+public struct ContextStatusEvent: Sendable, Equatable {
+    public let usageRatio: Double
+    public let tokenCount: Int
+    public let tokenLimit: Int
+    public let event: String
+    public let lastMessageRole: String
+    public let compactionDelta: Int
+
+    public init(
+        usageRatio: Double,
+        tokenCount: Int,
+        tokenLimit: Int,
+        event: String,
+        lastMessageRole: String,
+        compactionDelta: Int
+    ) {
+        self.usageRatio = usageRatio
+        self.tokenCount = tokenCount
+        self.tokenLimit = tokenLimit
+        self.event = event
+        self.lastMessageRole = lastMessageRole
+        self.compactionDelta = compactionDelta
+    }
+}
+
+/// `context.status` の拡張版コールバック (C1/C2/C3/C5)。
+/// 旧 StatusCallback と並存する。両方指定すれば両方呼ばれる。
+public typealias StatusEventCallback = @Sendable (ContextStatusEvent) async -> Void
+
 /// 現在実行中のフェーズを受け取るコールバック (G3)。
 /// 例: `.routing` → `.tool` → `.guarding` → `.generating`。
 public typealias PhaseCallback = @Sendable (_ phase: AgentPhase) async -> Void
@@ -230,6 +265,7 @@ public actor RawAgent {
 
     private var streamCallback: StreamCallback?
     private var statusCallback: StatusCallback?
+    private var statusEventCallback: StatusEventCallback?
     private var phaseCallback: PhaseCallback?
     private var llmHandler: LLMHandler?
     private let observer = RunObserver()
@@ -298,19 +334,23 @@ public actor RawAgent {
         maxTurns: Int? = nil,
         stream: StreamCallback? = nil,
         onStatus: StatusCallback? = nil,
+        onStatusEvent: StatusEventCallback? = nil,
         onPhase: PhaseCallback? = nil,
         timeout: Duration? = nil
     ) async throws -> AgentResult {
         self.streamCallback = stream
         let prevStatus = self.statusCallback
+        let prevStatusEvent = self.statusEventCallback
         let prevPhase = self.phaseCallback
         if let onStatus = onStatus { self.statusCallback = onStatus }
+        if let onStatusEvent = onStatusEvent { self.statusEventCallback = onStatusEvent }
         if let onPhase = onPhase { self.phaseCallback = onPhase }
         // 1 回の run につき観測レコードをリセットする
         await observer.reset()
         defer {
             self.streamCallback = nil
             self.statusCallback = prevStatus
+            self.statusEventCallback = prevStatusEvent
             self.phaseCallback = prevPhase
         }
 
@@ -618,11 +658,23 @@ public actor RawAgent {
     }
 
     private func handleContextStatus(_ params: JSONValue) async {
-        guard let cb = statusCallback else { return }
         let ratio = params["usage_ratio"]?.doubleValue ?? 0.0
         let count = params["token_count"]?.intValue ?? 0
         let limit = params["token_limit"]?.intValue ?? 0
-        await cb(ratio, count, limit)
+        if let cb = statusCallback {
+            await cb(ratio, count, limit)
+        }
+        if let cb = statusEventCallback {
+            let evt = ContextStatusEvent(
+                usageRatio: ratio,
+                tokenCount: count,
+                tokenLimit: limit,
+                event: params["last_event"]?.stringValue ?? "",
+                lastMessageRole: params["last_message_role"]?.stringValue ?? "",
+                compactionDelta: params["compaction_delta"]?.intValue ?? 0
+            )
+            await cb(evt)
+        }
     }
 
     // MARK: - 観測ヘルパ (G1〜G4)

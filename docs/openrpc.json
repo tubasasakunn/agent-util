@@ -1159,7 +1159,10 @@
         "properties": {
           "usage_ratio": { "type": "number" },
           "token_count": { "type": "integer" },
-          "token_limit": { "type": "integer" }
+          "token_limit": { "type": "integer" },
+          "last_event": { "type": "string", "description": "user_added / assistant_added / tool_added / compacted / empty" },
+          "last_message_role": { "type": "string" },
+          "compaction_delta": { "type": "integer", "description": "tokens removed by latest compaction" }
         }
       }
     }
