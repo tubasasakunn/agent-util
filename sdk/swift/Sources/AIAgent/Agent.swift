@@ -76,6 +76,30 @@ public struct AgentConfig: Sendable {
     /// ollama / mock 等) への変換ポイント。
     public var llmHandler: LLMHandler?
 
+    // MARK: - カスタムハンドラ (B1〜B4: start() 内で自動 register される)
+
+    /// `Agent.start()` 内で `configure` より前に自動 register されるカスタムツール。
+    ///
+    /// 旧 API では `agent.start()` の後で `agent.registerTools(...)` する必要があり、
+    /// しかも `AgentConfig.toolScope` で名前指定すると "unknown" で失敗していた。
+    /// これに `[Tool]` を渡せば、内部で「subprocess 起動 → register → configure」の
+    /// 順に処理されるため、`toolScope.includeAlways: ["myTool"]` 等が機能する。
+    public var customTools: [Tool]?
+
+    /// `Agent.start()` 内で `configure` より前に自動 register されるカスタムガード。
+    ///
+    /// 例: `customGuards: [GuardSpec.input(name: "no_secrets") { ... }]` と
+    ///     `guards: GuardsConfig(input: ["no_secrets"])` を併用すれば、
+    /// AgentConfig 1 つで「定義」と「有効化」が完結する。
+    public var customGuards: [GuardSpec]?
+
+    /// `Agent.start()` 内で `configure` より前に自動 register されるカスタム Verifier。
+    public var customVerifiers: [Verifier]?
+
+    /// `Agent.start()` 内で `configure` より前に自動 register されるカスタム Judge。
+    /// キーはジャッジ名、値はハンドラ。`judge: JudgeConfig(name: "...")` と対応させる。
+    public var customJudges: [String: JudgeHandler]?
+
     public init(
         binary: String = "agent",
         env: [String: String]? = nil,
@@ -98,6 +122,10 @@ public struct AgentConfig: Sendable {
         judge: JudgeConfig? = nil,
         llm: LLMConfig? = nil,
         llmHandler: LLMHandler? = nil,
+        customTools: [Tool]? = nil,
+        customGuards: [GuardSpec]? = nil,
+        customVerifiers: [Verifier]? = nil,
+        customJudges: [String: JudgeHandler]? = nil,
         versionCheck: VersionCheckPolicy = .warn
     ) {
         precondition(!binary.isEmpty, "AgentConfig.binary must be a non-empty string")
@@ -123,6 +151,10 @@ public struct AgentConfig: Sendable {
         self.judge = judge
         self.llm = llm
         self.llmHandler = llmHandler
+        self.customTools = customTools
+        self.customGuards = customGuards
+        self.customVerifiers = customVerifiers
+        self.customJudges = customJudges
         self.versionCheck = versionCheck
     }
 
@@ -204,9 +236,6 @@ public actor Agent {
         try await raw.start()
 
         // E3: バイナリのバージョン互換性をハンドシェイクで検証する。
-        // 旧バイナリは server.info を実装していないため、`method not found` で
-        // 失敗する。これを「llm.execute も未対応かもしれない古いバイナリ」と
-        // 解釈し、`AgentConfig.versionCheck` に従って判定する。
         if config.versionCheck != .skip {
             try await Self.performHandshake(raw: raw, policy: config.versionCheck)
         }
@@ -216,7 +245,30 @@ public actor Agent {
         if let handler = config.llmHandler {
             await raw.setLLMHandler(handler)
         }
+
+        // B1〜B4: AgentConfig.custom* に積まれたハンドラを configure より前に
+        // 全部 register する。これによって AgentConfig.guards / verify / judge
+        // で名前指定したカスタムガード等が unknown にならない。
+        if let tools = config.customTools, !tools.isEmpty {
+            _ = try await raw.registerTools(tools)
+            for t in tools { registeredTools[t.name] = t }
+        }
+        if let guards = config.customGuards, !guards.isEmpty {
+            _ = try await raw.registerGuards(guards)
+        }
+        if let verifiers = config.customVerifiers, !verifiers.isEmpty {
+            _ = try await raw.registerVerifiers(verifiers)
+        }
+        if let judges = config.customJudges {
+            for (name, handler) in judges {
+                try await raw.registerJudge(name: name, handler: handler)
+            }
+        }
+
+        // すべて register し終わってから configure する。
+        // configure 内で参照される guard/verifier/judge の名前は既知になっている。
         _ = try await raw.configure(config.toCoreConfig())
+
         self.core = raw
         self.started = true
         return self

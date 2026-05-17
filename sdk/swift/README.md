@@ -408,6 +408,51 @@ public enum ToolReturn: Sendable {
 }
 ```
 
+### AgentConfig で「定義」と「有効化」を 1 つに (B1〜B4)
+
+旧 API は `Agent.start()` の中で `configure` が呼ばれていたため、
+`AgentConfig.guards = GuardsConfig(input: ["my_guard"])` のように名前指定しても、
+`registerGuards` は `start()` の後でしか呼べず **必ず "unknown guard" になる** という
+ライフサイクル設計の罠があった。
+
+現在は `AgentConfig.customGuards` / `customTools` / `customVerifiers` /
+`customJudges` を使えば、`start()` 内で「subprocess → register → configure」の
+順に処理される。設定 1 箇所で完結する:
+
+```swift
+let agent = Agent(config: AgentConfig(
+    binary: "./agent",
+    // 「どの名前を有効化するか」の設定
+    guards:    GuardsConfig(input: ["no_secrets"]),
+    verify:    VerifyConfig(verifiers: ["non_empty"]),
+    judge:     JudgeConfig(name: "concise"),
+    toolScope: ToolScopeConfig(maxTools: 3, includeAlways: ["echo"]),
+    // 「ハンドラの実装」 (start() 内で自動 register)
+    customTools: [
+        Tool(name: "echo") { args in .text(args["text"]?.stringValue ?? "") },
+    ],
+    customGuards: [
+        GuardSpec.input(name: "no_secrets") { input in
+            input.contains("password") ? .deny("contains secret") : .allow
+        },
+    ],
+    customVerifiers: [
+        Verifier(name: "non_empty") { _, _, r in
+            r.isEmpty ? .fail("empty") : .pass
+        },
+    ],
+    customJudges: [
+        "concise": { resp, _ in
+            resp.count >= 30 ? .done("long enough") : .continue
+        },
+    ]
+))
+try await agent.start()  // ここまでで全部 register + configure 済み
+```
+
+`Agent.registerTools(...)` / `registerGuards(...)` を **start() 後に追加で**
+呼ぶ経路も従来通り使える (動的にスキルを足したいケース)。
+
 ### `GuardSpec`
 
 戻り値は `GuardOutcome` (struct)。タプル風の 2 引数 init / `.allow` / `.deny(_:)`
