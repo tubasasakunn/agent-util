@@ -324,10 +324,16 @@ public actor Agent {
         maxTurns: Int? = nil,
         onDelta: StreamCallback? = nil,
         onStatus: StatusCallback? = nil,
+        onPhase: PhaseCallback? = nil,
         timeout: Duration? = nil
     ) async throws -> String {
         let result = try await inputVerbose(
-            prompt, maxTurns: maxTurns, onDelta: onDelta, onStatus: onStatus, timeout: timeout
+            prompt,
+            maxTurns: maxTurns,
+            onDelta: onDelta,
+            onStatus: onStatus,
+            onPhase: onPhase,
+            timeout: timeout
         )
         return result.response
     }
@@ -337,11 +343,17 @@ public actor Agent {
         maxTurns: Int? = nil,
         onDelta: StreamCallback? = nil,
         onStatus: StatusCallback? = nil,
+        onPhase: PhaseCallback? = nil,
         timeout: Duration? = nil
     ) async throws -> AgentResult {
         let core = try await ensureStarted()
         let result = try await core.run(
-            prompt, maxTurns: maxTurns, stream: onDelta, onStatus: onStatus, timeout: timeout
+            prompt,
+            maxTurns: maxTurns,
+            stream: onDelta,
+            onStatus: onStatus,
+            onPhase: onPhase,
+            timeout: timeout
         )
         await index.add(role: "user", content: prompt)
         await index.add(role: "assistant", content: result.response)

@@ -40,17 +40,82 @@ public struct UsageInfo: Sendable, Equatable {
     }
 }
 
+// MARK: - 観測性レコード (G1/G2/G4)
+
+/// ツール 1 回分の呼び出し記録。`AgentResult.toolCalls` で取得できる。
+public struct ToolCallRecord: Sendable, Equatable {
+    public let name: String
+    public let isError: Bool
+    public let argsJSON: String
+
+    public init(name: String, isError: Bool, argsJSON: String) {
+        self.name = name
+        self.isError = isError
+        self.argsJSON = argsJSON
+    }
+}
+
+/// ガード/ベリファイア/ジャッジ 1 回分の発火記録。`AgentResult.guardFires` で取得できる。
+public struct GuardFireRecord: Sendable, Equatable {
+    /// "guard.input" / "guard.tool_call" / "guard.output" / "verifier" / "judge"
+    public let kind: String
+    public let name: String
+    /// "allow"/"deny"/"tripwire" (guard) or "pass"/"fail" (verifier) or "continue"/"done" (judge)
+    public let decision: String
+    public let reason: String
+
+    public init(kind: String, name: String, decision: String, reason: String) {
+        self.kind = kind
+        self.name = name
+        self.decision = decision
+        self.reason = reason
+    }
+}
+
+// MARK: - 実行フェーズ (G3)
+
+/// 実行中のおおまかなフェーズ。`onPhase` コールバックで通知される。
+public enum AgentPhase: String, Sendable {
+    /// ルーターがツール選択中
+    case routing
+    /// ツール実行中
+    case tool
+    /// ガード判定中 (入力/ツール呼出/出力)
+    case guarding
+    /// ベリファイア実行中
+    case verifying
+    /// ジャッジ評価中
+    case judging
+    /// 自然言語応答生成中
+    case generating
+}
+
 public struct AgentResult: Sendable, Equatable {
     public var response: String
     public var reason: String
     public var turns: Int
     public var usage: UsageInfo
+    /// 今回の run で実行されたツール呼び出し履歴 (G1/G2)。
+    /// `toolCalls.count` で総呼び出し数、`toolCalls.filter { $0.name == "x" }.count`
+    /// で個別ツールの呼び出し回数が得られる。
+    public var toolCalls: [ToolCallRecord]
+    /// 今回の run で発火したガード/ベリファイア/ジャッジ履歴 (G4)。
+    public var guardFires: [GuardFireRecord]
 
-    public init(response: String, reason: String, turns: Int, usage: UsageInfo) {
+    public init(
+        response: String,
+        reason: String,
+        turns: Int,
+        usage: UsageInfo,
+        toolCalls: [ToolCallRecord] = [],
+        guardFires: [GuardFireRecord] = []
+    ) {
         self.response = response
         self.reason = reason
         self.turns = turns
         self.usage = usage
+        self.toolCalls = toolCalls
+        self.guardFires = guardFires
     }
 
     /// 既知の終了理由。`AgentResult.reason` 文字列の判別を型で行うためのヘルパ。
@@ -89,6 +154,29 @@ public struct AgentResult: Sendable, Equatable {
 
 public typealias StreamCallback = @Sendable (_ text: String, _ turn: Int) async -> Void
 public typealias StatusCallback = @Sendable (_ usageRatio: Double, _ count: Int, _ limit: Int) async -> Void
+/// 現在実行中のフェーズを受け取るコールバック (G3)。
+/// 例: `.routing` → `.tool` → `.guarding` → `.generating`。
+public typealias PhaseCallback = @Sendable (_ phase: AgentPhase) async -> Void
+
+/// 1 回の run() の間にツール/ガード等の呼び出しを記録する actor。
+///
+/// RawAgent.run の冒頭でリセットされ、終了時に AgentResult に詰めて返される。
+actor RunObserver {
+    private(set) var toolCalls: [ToolCallRecord] = []
+    private(set) var guardFires: [GuardFireRecord] = []
+
+    func reset() {
+        toolCalls.removeAll()
+        guardFires.removeAll()
+    }
+
+    func recordToolCall(_ rec: ToolCallRecord) { toolCalls.append(rec) }
+    func recordGuardFire(_ rec: GuardFireRecord) { guardFires.append(rec) }
+
+    func snapshot() -> (toolCalls: [ToolCallRecord], guardFires: [GuardFireRecord]) {
+        (toolCalls, guardFires)
+    }
+}
 
 /// `llm.execute` ハンドラ。OpenAI 互換 ChatRequest を表す `JSONValue` を受け取り、
 /// OpenAI 互換 ChatResponse を表す `JSONValue` を返す。
@@ -114,7 +202,9 @@ public actor RawAgent {
 
     private var streamCallback: StreamCallback?
     private var statusCallback: StatusCallback?
+    private var phaseCallback: PhaseCallback?
     private var llmHandler: LLMHandler?
+    private let observer = RunObserver()
 
     public init(
         binaryPath: String = "agent",
@@ -163,14 +253,20 @@ public actor RawAgent {
         maxTurns: Int? = nil,
         stream: StreamCallback? = nil,
         onStatus: StatusCallback? = nil,
+        onPhase: PhaseCallback? = nil,
         timeout: Duration? = nil
     ) async throws -> AgentResult {
         self.streamCallback = stream
         let prevStatus = self.statusCallback
+        let prevPhase = self.phaseCallback
         if let onStatus = onStatus { self.statusCallback = onStatus }
+        if let onPhase = onPhase { self.phaseCallback = onPhase }
+        // 1 回の run につき観測レコードをリセットする
+        await observer.reset()
         defer {
             self.streamCallback = nil
             self.statusCallback = prevStatus
+            self.phaseCallback = prevPhase
         }
 
         var params: [String: JSONValue] = ["prompt": .string(prompt)]
@@ -183,11 +279,14 @@ public actor RawAgent {
             completionTokens: usageJson?["completion_tokens"]?.intValue ?? 0,
             totalTokens: usageJson?["total_tokens"]?.intValue ?? 0
         )
+        let snap = await observer.snapshot()
         return AgentResult(
             response: raw["response"]?.stringValue ?? "",
             reason: raw["reason"]?.stringValue ?? "",
             turns: raw["turns"]?.intValue ?? 0,
-            usage: usage
+            usage: usage,
+            toolCalls: snap.toolCalls,
+            guardFires: snap.guardFires
         )
     }
 
@@ -277,11 +376,13 @@ public actor RawAgent {
 
     private func wireHandlers() async {
         // ツール実行 (core -> wrapper)
-        await rpc.setRequestHandler(RpcMethod.toolExecute) { [tools] params in
+        await rpc.setRequestHandler(RpcMethod.toolExecute) { [weak self, tools] params in
             let name = params["name"]?.stringValue ?? ""
             let args = params["args"] ?? .object([:])
+            await self?.emitPhase(.tool)
             guard let tool = await tools.get(name) else {
                 let registered = await tools.names()
+                await self?.recordToolCall(name: name, isError: true, args: args)
                 return .object([
                     "content": .string("tool not found: \(name) (registered: \(registered))"),
                     "is_error": .bool(true),
@@ -290,9 +391,13 @@ public actor RawAgent {
             do {
                 let result = try await tool.handler(args)
                 await tools.recordSuccess(name)
-                return coerceToolResult(result)
+                let outJSON = coerceToolResult(result)
+                let isErr = outJSON["is_error"]?.boolValue ?? false
+                await self?.recordToolCall(name: name, isError: isErr, args: args)
+                return outJSON
             } catch {
                 await tools.recordError(name)
+                await self?.recordToolCall(name: name, isError: true, args: args)
                 return .object([
                     "content": .string("tool execution failed: \(error)"),
                     "is_error": .bool(true),
@@ -301,14 +406,17 @@ public actor RawAgent {
         }
 
         // ガード実行
-        await rpc.setRequestHandler(RpcMethod.guardExecute) { [guards] params in
+        await rpc.setRequestHandler(RpcMethod.guardExecute) { [weak self, guards] params in
             let name = params["name"]?.stringValue ?? ""
             let stage = params["stage"]?.stringValue ?? ""
+            await self?.emitPhase(.guarding)
             guard let g = await guards.get(name: name, stage: stage) else {
                 let registered = await guards.registered()
+                let reason = "guard not found: \(name)/\(stage) (registered: \(registered))"
+                await self?.recordGuardFire(kind: "guard.\(stage)", name: name, decision: "deny", reason: reason)
                 return .object([
                     "decision": .string("deny"),
-                    "reason": .string("guard not found: \(name)/\(stage) (registered: \(registered))"),
+                    "reason": .string(reason),
                 ])
             }
             let input = GuardInput(
@@ -319,26 +427,37 @@ public actor RawAgent {
             )
             do {
                 let outcome = try await g.handler(input)
+                await self?.recordGuardFire(
+                    kind: "guard.\(stage)",
+                    name: name,
+                    decision: outcome.decision.rawValue,
+                    reason: outcome.reason
+                )
                 return .object([
                     "decision": .string(outcome.decision.rawValue),
                     "reason": .string(outcome.reason),
                 ])
             } catch {
+                let reason = "guard error: \(error)"
+                await self?.recordGuardFire(kind: "guard.\(stage)", name: name, decision: "deny", reason: reason)
                 return .object([
                     "decision": .string("deny"),
-                    "reason": .string("guard error: \(error)"),
+                    "reason": .string(reason),
                 ])
             }
         }
 
         // ベリファイア実行
-        await rpc.setRequestHandler(RpcMethod.verifierExecute) { [verifiers] params in
+        await rpc.setRequestHandler(RpcMethod.verifierExecute) { [weak self, verifiers] params in
             let name = params["name"]?.stringValue ?? ""
+            await self?.emitPhase(.verifying)
             guard let v = await verifiers.get(name) else {
                 let registered = await verifiers.registered()
+                let summary = "verifier not found: \(name) (registered: \(registered))"
+                await self?.recordGuardFire(kind: "verifier", name: name, decision: "fail", reason: summary)
                 return .object([
                     "passed": .bool(false),
-                    "summary": .string("verifier not found: \(name) (registered: \(registered))"),
+                    "summary": .string(summary),
                 ])
             }
             do {
@@ -347,26 +466,37 @@ public actor RawAgent {
                     params["args"] ?? .object([:]),
                     params["result"]?.stringValue ?? ""
                 )
+                await self?.recordGuardFire(
+                    kind: "verifier",
+                    name: name,
+                    decision: outcome.passed ? "pass" : "fail",
+                    reason: outcome.summary
+                )
                 return .object([
                     "passed": .bool(outcome.passed),
                     "summary": .string(outcome.summary),
                 ])
             } catch {
+                let summary = "verifier error: \(error)"
+                await self?.recordGuardFire(kind: "verifier", name: name, decision: "fail", reason: summary)
                 return .object([
                     "passed": .bool(false),
-                    "summary": .string("verifier error: \(error)"),
+                    "summary": .string(summary),
                 ])
             }
         }
 
         // ジャッジ評価
-        await rpc.setRequestHandler(RpcMethod.judgeEvaluate) { [judges] params in
+        await rpc.setRequestHandler(RpcMethod.judgeEvaluate) { [weak self, judges] params in
             let name = params["name"]?.stringValue ?? ""
+            await self?.emitPhase(.judging)
             guard let handler = await judges.get(name) else {
                 let registered = await judges.registered()
+                let reason = "judge not found: \(name) (registered: \(registered))"
+                await self?.recordGuardFire(kind: "judge", name: name, decision: "continue", reason: reason)
                 return .object([
                     "terminate": .bool(false),
-                    "reason": .string("judge not found: \(name) (registered: \(registered))"),
+                    "reason": .string(reason),
                 ])
             }
             do {
@@ -374,14 +504,22 @@ public actor RawAgent {
                     params["response"]?.stringValue ?? "",
                     params["turn"]?.intValue ?? 0
                 )
+                await self?.recordGuardFire(
+                    kind: "judge",
+                    name: name,
+                    decision: outcome.terminate ? "done" : "continue",
+                    reason: outcome.reason
+                )
                 return .object([
                     "terminate": .bool(outcome.terminate),
                     "reason": .string(outcome.reason),
                 ])
             } catch {
+                let reason = "judge error: \(error)"
+                await self?.recordGuardFire(kind: "judge", name: name, decision: "continue", reason: reason)
                 return .object([
                     "terminate": .bool(false),
-                    "reason": .string("judge error: \(error)"),
+                    "reason": .string(reason),
                 ])
             }
         }
@@ -391,6 +529,12 @@ public actor RawAgent {
             guard let self = self else {
                 return .object([:])
             }
+            // ChatRequest が response_format=json_object のときはルーターフェーズ、
+            // そうでなければ自然言語生成フェーズ。
+            let request = params["request"] ?? .object([:])
+            let isRouter = request["response_format"] != nil
+                && (request["response_format"]?["type"]?.stringValue == "json_object")
+            await self.emitPhase(isRouter ? .routing : .generating)
             return try await self.handleLLMExecute(params)
         }
 
@@ -434,5 +578,42 @@ public actor RawAgent {
         let count = params["token_count"]?.intValue ?? 0
         let limit = params["token_limit"]?.intValue ?? 0
         await cb(ratio, count, limit)
+    }
+
+    // MARK: - 観測ヘルパ (G1〜G4)
+
+    /// 観測レコード集計用。引数 JSON を文字列に正規化して記録する。
+    func recordToolCall(name: String, isError: Bool, args: JSONValue) async {
+        let argsStr = Self.compactJSONString(args)
+        await observer.recordToolCall(
+            ToolCallRecord(name: name, isError: isError, argsJSON: argsStr)
+        )
+    }
+
+    func recordGuardFire(kind: String, name: String, decision: String, reason: String) async {
+        await observer.recordGuardFire(
+            GuardFireRecord(kind: kind, name: name, decision: decision, reason: reason)
+        )
+    }
+
+    /// 直近の `run()` の観測スナップショット (デバッグ用)。
+    public func observerSnapshot() async -> (toolCalls: [ToolCallRecord], guardFires: [GuardFireRecord]) {
+        await observer.snapshot()
+    }
+
+    func emitPhase(_ phase: AgentPhase) async {
+        guard let cb = phaseCallback else { return }
+        await cb(phase)
+    }
+
+    private static func compactJSONString(_ value: JSONValue) -> String {
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: value.toRaw(),
+                options: [.fragmentsAllowed]
+            ),
+            let s = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return s
     }
 }
