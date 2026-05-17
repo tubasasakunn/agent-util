@@ -5,7 +5,7 @@ final class ServerInfoTests: XCTestCase {
 
     func testServerInfoSupportsFeature() {
         let info = ServerInfo(
-            libraryVersion: "0.2.1",
+            libraryVersion: "0.3.0",
             protocolVersion: "2.0",
             methods: ["agent.run"],
             features: ["llm_execute": true, "experimental": false]
@@ -17,13 +17,13 @@ final class ServerInfoTests: XCTestCase {
 
     func testServerInfoEquatable() {
         let a = ServerInfo(
-            libraryVersion: "0.2.1",
+            libraryVersion: "0.3.0",
             protocolVersion: "2.0",
             methods: ["agent.run"],
             features: ["x": true]
         )
         let b = ServerInfo(
-            libraryVersion: "0.2.1",
+            libraryVersion: "0.3.0",
             protocolVersion: "2.0",
             methods: ["agent.run"],
             features: ["x": true]
@@ -34,7 +34,7 @@ final class ServerInfoTests: XCTestCase {
     func testSDKLibraryVersionConstant() {
         // 真実の源 (pkg/protocol/version.go) と同期されているべき値。
         // CLAUDE.md `## バージョン` の同期表に従う。
-        XCTAssertEqual(aiAgentSDKLibraryVersion, "0.2.1")
+        XCTAssertEqual(aiAgentSDKLibraryVersion, "0.3.0")
     }
 
     // MARK: - withStderrHint (E4)

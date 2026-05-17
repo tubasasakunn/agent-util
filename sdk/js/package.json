@@ -1,6 +1,6 @@
 {
   "name": "@ai-agent/sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "TypeScript SDK for ai-agent — thin JSON-RPC client + tool helpers",
   "license": "MIT",
   "type": "module",

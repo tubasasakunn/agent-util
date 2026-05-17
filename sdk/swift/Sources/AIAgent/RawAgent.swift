@@ -52,7 +52,7 @@ public struct ServerInfo: Sendable, Equatable {
 
 /// SDK が想定している ai-agent ライブラリのバージョン。
 /// バイナリ側 `protocol.LibraryVersion` と一致するべき値。
-public let aiAgentSDKLibraryVersion = "0.2.1"
+public let aiAgentSDKLibraryVersion = "0.3.0"
 
 // MARK: - 結果型
 

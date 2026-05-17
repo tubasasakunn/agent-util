@@ -8,7 +8,116 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-17
+
+利用者からの **Swift SDK 利用者視点の指摘 30 件** に対応するリリース。
+プロトコル拡張 (`server.info` / context.status 追加フィールド / llm.execute
+session_id) を含むため minor バンプ。
+
+### Breaking
+
+- **`max_turns` 到達時の挙動変更 (A3, ADR-017)** — `engine.Run()` がエラー
+  ではなく `Result{Reason: "max_turns", Response: lastAssistantText}` を返す
+  ように変更。利用側で `try ... except AgentError as e: if "max turns" in str(e):`
+  していたコードは `result.reason == "max_turns"` (Swift では `result.isMaxTurns`)
+  に書き換えが必要。
+- **`engine.ContextStatusCallback` シグネチャ変更** — 内部 Go API。
+  `(ratio, count, limit)` → `(ratio, count, limit, event, lastRole, compactionDelta)`。
+  SDK 利用者には影響なし。
+- **Swift `JudgeConfig.name` を `String?` 化** — 空文字 ("") とそれを区別する
+  Optional に。デフォルト `nil`。利用側で `JudgeConfig(name: "x")` のままで動作。
+
 ### Added
+
+#### エージェントループの安定化 (A1/A2/A4, ADR-020/ADR-021)
+
+- **`ToolScopeConfig.tool_budget`** — 同一ツールの呼び出し回数を hard cap。
+  例: `{"shell": 1}` を指定すると `shell` は 1 回呼んだ時点でルーターから
+  自動的に除外される。SLLM の暴走 (同じツールを何度も呼ぶ) を SDK レベルで
+  防ぐ。
+- **内蔵 GoalJudge (`JudgeConfig.builtin`)** — `min_length:30` で 30 文字以上
+  の自然言語応答を完了とみなす、`contains:FINAL` でキーワードマッチ、など
+  spec 文字列で簡潔に表現できる。小型モデルで「judge を自分で書かないと
+  終わらない」を解消。
+
+#### バイナリ互換性 (E3/E4, ADR-018)
+
+- **`server.info` RPC** — `library_version` / `protocol_version` /
+  `methods[]` / `features{}` を返す。
+- **Swift `AgentConfig.versionCheck`** (`.strict` / `.warn` / `.skip`) で
+  ハンドシェイクポリシー。旧バイナリ (`-32601 method not found`) を確実に
+  検知して案内メッセージを出す。
+- **`AgentError.withStderrHint(_:)`** — エラー時に stderr 末尾 2KB を
+  `data["stderr_tail"]` に添える。
+
+#### 観測性 (G1/G2/G3/G4, C1/C2/C3/C5, ADR-022)
+
+- **`AgentResult.toolCalls: [ToolCallRecord]`** / **`guardFires: [GuardFireRecord]`** —
+  run 終了後にツール呼び出し履歴とガード/ベリファイア/ジャッジ発火履歴が取れる。
+  stderr 解析不要。
+- **`AgentPhase` enum と `onPhase:` コールバック** — `.routing` / `.tool` /
+  `.guarding` / `.verifying` / `.judging` / `.generating` のフェーズ通知。
+- **`context.status` 通知拡張** — `last_event`
+  (`"user_added"` / `"compacted"` 等) と `compaction_delta` (削減トークン数)
+  を追加。Swift では `StatusEventCallback` で受け取れる。
+
+#### ライフサイクル統合 (B1/B2/B3/B4, ADR-019)
+
+- **`AgentConfig.customTools` / `customGuards` / `customVerifiers` /
+  `customJudges`** (Swift) — ハンドラ実体を AgentConfig に直接持たせると、
+  `Agent.start()` 内で「subprocess → register* → configure」の順に処理される。
+  これにより `AgentConfig.guards = GuardsConfig(input: ["my_guard"])` の名前
+  指定が確実に解決される (旧来は unknown guard で失敗していた)。
+
+#### KV cache 対応 (E2, ADR-023)
+
+- **`llm.execute.session_id` / `call_index`** — agent.run スコープのユニーク
+  ID (8 byte hex) と通し番号。Anthropic prompt caching の `cache_control` や
+  ollama context の再利用にラッパー側で活用できる。
+- **Swift `LLMHandlerWithSession`** — `(request, sessionID, callIndex)` を
+  受け取るハンドラ。優先順位は **WithSession > Streaming > 通常**。
+
+#### Swift SDK の使い勝手 (D1〜D5)
+
+- **`AgentError: LocalizedError` 準拠 + `AgentErrorKind` enum** —
+  `error.localizedDescription` が有意な文字列に。`switch err.kind { case
+  .guardDenied: ... }` で型安全に分岐可能。
+- **`GuardOutcome` / `VerifierOutcome` / `JudgeOutcome` を struct 化** —
+  タプル戻り値の意味不明問題を解消。`.allow` / `.deny("...")` / `.pass` /
+  `.fail("...")` / `.done("...")` / `.continue` のショートカット。
+- **`ToolParameters` result builder DSL** — JSON Schema 手書きの代わりに
+  `ToolParameters { StringParam("url").description("...").required() }` で
+  宣言的に組める。
+- **`AgentConfig.debugDump()`** と **`AGENT_RPC_TRACE=1`** — camelCase ⇔
+  snake_case 変換の可視化、JSON-RPC 通信のトレース。
+
+#### ストリーミング (E1)
+
+- **`LLMStreamingHandler`** — `onDelta` クロージャを呼ぶたびに Swift SDK の
+  `streamCallback` に転送。Anthropic Messages の streaming API などを
+  Swift 側で逐次表示可能。**Go コアには chunk は届かない** (本質的解決は将来)。
+
+#### プラットフォーム (F1〜F5)
+
+- **iOS / Mac Catalyst ビルド対応** — `Package.swift` の `platforms` に
+  `.iOS(.v16)` / `.macCatalyst(.v16)` を宣言。`Process` を
+  `NSClassFromString("NSTask")` + KVC + ObjC ランタイム経由に変更し、
+  Mac Catalyst の `@available(unavailable)` を回避。iOS では実行時エラー
+  (subprocess 未対応プラットフォーム) になる。
+- **`docs/BINARY_DISTRIBUTION.md`** — Apple Silicon Universal Binary、
+  Codesign、App Sandbox、Swift アプリへの同梱パターンのレシピ。
+
+#### ドキュメント (H1〜H4)
+
+- **`sdk/swift/README.md`** を全面拡充:
+  - スキル設定ファイルのスキーマ (skill.json / mcp.json / config.json)
+  - CompactionConfig の 4 段カスケード詳細
+  - LoopConfig.type (react / reaf) の差異
+  - llmHandler だけで成立する Anthropic Messages API フルサンプル
+  - 小型モデル向けチューニング指針 (Gemma 4 E2B / Qwen 1.5B / Llama 3.2 3B)
+  - エラーハンドリング (kind 分岐) / 観測性 / lifecycle / DSL の使い方
+
+### Added (継続)
 
 #### LLM 呼び出しのラッパー委譲 — `llm.execute` 逆 RPC (ADR-016)
 
