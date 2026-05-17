@@ -21,6 +21,10 @@ const (
 	// LLM 実行をラッパー側に委譲する逆 RPC（コア → ラッパー）
 	MethodLLMExecute = "llm.execute"
 
+	// サーバー情報取得（バージョン / 対応メソッド / 機能フラグ）
+	// ラッパー起動時のハンドシェイクに使う。
+	MethodServerInfo = "server.info"
+
 	// セッション管理（会話履歴のエクスポート・注入・スナップショット）
 	MethodSessionHistory = "session.history"
 	MethodSessionInject  = "session.inject"
@@ -58,6 +62,23 @@ const (
 	GuardDecisionDeny     = "deny"
 	GuardDecisionTripwire = "tripwire"
 )
+
+// --- server.info ---
+
+// ServerInfoResult は server.info の結果。
+// バイナリのバージョンと、対応する RPC メソッド・機能フラグを返す。
+// ラッパーは起動時にこれを呼び、SDK バージョンとの互換性を確認できる。
+type ServerInfoResult struct {
+	// LibraryVersion はバイナリの semver (例: "0.2.1")。
+	LibraryVersion string `json:"library_version"`
+	// ProtocolVersion は JSON-RPC 自体のバージョン (固定で "2.0")。
+	ProtocolVersion string `json:"protocol_version"`
+	// Methods は server がサポートする RPC メソッド名一覧。
+	Methods []string `json:"methods"`
+	// Features は機能フラグの map (例: {"llm.execute": true, "context.summarize": true})。
+	// SDK は未対応機能を呼ぶ前にここで判定できる。
+	Features map[string]bool `json:"features"`
+}
 
 // --- agent.run ---
 

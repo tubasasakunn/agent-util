@@ -29,6 +29,19 @@ public struct AgentConfig: Sendable {
     public var env: [String: String]?
     public var cwd: String?
 
+    /// バイナリのバージョン検証ポリシー (E3)。
+    public enum VersionCheckPolicy: Sendable, Equatable {
+        /// バージョンが完全一致しないと start() が失敗する。
+        case strict
+        /// 不一致は警告のみ (stderr に出力)。デフォルト。
+        case warn
+        /// server.info ハンドシェイク自体をスキップする。
+        case skip
+    }
+
+    /// バイナリのバージョン整合性チェック。デフォルトは `.warn`。
+    public var versionCheck: VersionCheckPolicy = .warn
+
     // 基本エージェント挙動
     public var systemPrompt: String?
     public var maxTurns: Int?
@@ -84,7 +97,8 @@ public struct AgentConfig: Sendable {
         router: RouterConfig? = nil,
         judge: JudgeConfig? = nil,
         llm: LLMConfig? = nil,
-        llmHandler: LLMHandler? = nil
+        llmHandler: LLMHandler? = nil,
+        versionCheck: VersionCheckPolicy = .warn
     ) {
         precondition(!binary.isEmpty, "AgentConfig.binary must be a non-empty string")
         precondition(maxTurns.map { $0 > 0 } ?? true, "AgentConfig.maxTurns must be positive")
@@ -109,6 +123,7 @@ public struct AgentConfig: Sendable {
         self.judge = judge
         self.llm = llm
         self.llmHandler = llmHandler
+        self.versionCheck = versionCheck
     }
 
     func toCoreConfig() -> CoreAgentConfig {
@@ -187,6 +202,15 @@ public actor Agent {
         if started { return self }
         let raw = RawAgent(binaryPath: config.binary, env: config.env, cwd: config.cwd)
         try await raw.start()
+
+        // E3: バイナリのバージョン互換性をハンドシェイクで検証する。
+        // 旧バイナリは server.info を実装していないため、`method not found` で
+        // 失敗する。これを「llm.execute も未対応かもしれない古いバイナリ」と
+        // 解釈し、`AgentConfig.versionCheck` に従って判定する。
+        if config.versionCheck != .skip {
+            try await Self.performHandshake(raw: raw, policy: config.versionCheck)
+        }
+
         // configure より前に llm.execute ハンドラを差し込む
         // (configure 直後に LLM 呼び出しが走る可能性があるため)
         if let handler = config.llmHandler {
@@ -196,6 +220,49 @@ public actor Agent {
         self.core = raw
         self.started = true
         return self
+    }
+
+    /// `server.info` ハンドシェイクを実行し、ポリシーに従って判定する。
+    /// - strict: 不一致または server.info 未対応で AgentError を throw する
+    /// - warn  : stderr に警告を出して続行
+    private static func performHandshake(
+        raw: RawAgent,
+        policy: AgentConfig.VersionCheckPolicy
+    ) async throws {
+        do {
+            let info = try await raw.serverInfo()
+            if info.libraryVersion != aiAgentSDKLibraryVersion {
+                let msg = """
+                [ai-agent] version mismatch: SDK=\(aiAgentSDKLibraryVersion) binary=\(info.libraryVersion). \
+                Some features (e.g. llm.execute) may behave unexpectedly. \
+                Rebuild the agent binary with the matching version.
+                """
+                if policy == .strict {
+                    throw AgentError(msg)
+                }
+                FileHandle.standardError.write(Data((msg + "\n").utf8))
+            }
+        } catch let err as AgentError where err.code == -32601 {
+            // 旧バイナリは server.info 未実装。
+            let msg = """
+            [ai-agent] binary does not implement server.info (likely older than \(aiAgentSDKLibraryVersion)). \
+            Features such as llm.execute may be unavailable. \
+            Rebuild the agent binary from this repository.
+            """
+            if policy == .strict {
+                throw AgentError(msg)
+            }
+            FileHandle.standardError.write(Data((msg + "\n").utf8))
+        } catch let err as AgentError {
+            // strict ですでに throw 済みの場合は再 throw、それ以外は警告。
+            if policy == .strict { throw err }
+            let msg = "[ai-agent] handshake failed: \(err.localizedDescription)\n"
+            FileHandle.standardError.write(Data(msg.utf8))
+        } catch {
+            if policy == .strict { throw AgentError("handshake failed: \(error)") }
+            let msg = "[ai-agent] handshake failed: \(error)\n"
+            FileHandle.standardError.write(Data(msg.utf8))
+        }
     }
 
     public func close() async {

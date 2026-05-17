@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -254,4 +255,38 @@ func TestHandlers_RegisteredToolAvailable(t *testing.T) {
 	// RegisterTool 後にルーターがツールを認識することを間接的に確認
 	// ルーターステップは Engine 内部で行われるため、ここでは RemoteTool の型確認のみ
 	_ = tool.Tool(nil) // import を維持
+}
+
+func TestHandlers_ServerInfo(t *testing.T) {
+	comp := &testCompleter{}
+	eng := mustEngineNew(t, comp)
+
+	var buf bytes.Buffer
+	srv := New(io.NopCloser(bytes.NewReader(nil)), &buf)
+	h := NewHandlers(eng, srv)
+
+	result, rpcErr := h.handleServerInfo(context.Background(), nil)
+	if rpcErr != nil {
+		t.Fatalf("unexpected error: %+v", rpcErr)
+	}
+
+	info, ok := result.(protocol.ServerInfoResult)
+	if !ok {
+		t.Fatalf("result type = %T, want ServerInfoResult", result)
+	}
+	if info.LibraryVersion == "" {
+		t.Error("LibraryVersion is empty")
+	}
+	if info.ProtocolVersion != "2.0" {
+		t.Errorf("ProtocolVersion = %q, want %q", info.ProtocolVersion, "2.0")
+	}
+	if !slices.Contains(info.Methods, protocol.MethodAgentRun) {
+		t.Errorf("Methods missing %q", protocol.MethodAgentRun)
+	}
+	if !slices.Contains(info.Methods, protocol.MethodServerInfo) {
+		t.Errorf("Methods missing %q (self-advertise required)", protocol.MethodServerInfo)
+	}
+	if !info.Features["llm_execute"] {
+		t.Error("Features missing llm_execute=true")
+	}
 }

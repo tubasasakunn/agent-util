@@ -168,6 +168,32 @@ public class AgentError: LocalizedError, CustomStringConvertible, @unchecked Sen
         if !message.isEmpty { parts.append("message=\"\(message)\"") }
         return parts.joined(separator: " ")
     }
+
+    // MARK: - stderr ヒント (E4)
+
+    /// バイナリの stderr 末尾を付加した新しい AgentError を返す。
+    ///
+    /// `agent.stderrOutput` をユーザーが取り回さなくて済むよう、
+    /// SDK 内部のキャッチ箇所でこれを呼び出してエラーに stderr を埋め込む。
+    /// 末尾 2KB に切り詰める (それ以上は冗長で UI を埋める)。
+    public func withStderrHint(_ stderr: String) -> AgentError {
+        guard !stderr.isEmpty else { return self }
+        let tail = stderr.count > 2048
+            ? String(stderr.suffix(2048))
+            : stderr
+        var dataDict: [String: JSONValue] = [:]
+        if case .object(let existing) = self.data ?? .null {
+            dataDict = existing
+        }
+        dataDict["stderr_tail"] = .string(tail)
+        let next = AgentError(
+            message,
+            code: code,
+            data: .object(dataDict),
+            kind: kind
+        )
+        return next
+    }
 }
 
 /// `agent.run` 実行中に別の `run` を呼んだ際に発生 (-32002)。

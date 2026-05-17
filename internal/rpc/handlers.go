@@ -54,6 +54,54 @@ func (h *Handlers) RegisterAll() {
 	h.server.Handle(protocol.MethodSessionHistory, h.handleSessionHistory)
 	h.server.Handle(protocol.MethodSessionInject, h.handleSessionInject)
 	h.server.Handle(protocol.MethodContextSummarize, h.handleContextSummarize)
+	// サーバー情報 (ハンドシェイク)
+	h.server.Handle(protocol.MethodServerInfo, h.handleServerInfo)
+}
+
+// handleServerInfo は server.info の実装。
+// バイナリのバージョンと対応 RPC メソッド一覧を返す。
+// ラッパー (SDK) は起動時にこれを呼び、自身のバージョンとの互換性を確認できる。
+func (h *Handlers) handleServerInfo(_ context.Context, _ json.RawMessage) (any, *protocol.RPCError) {
+	methods := []string{
+		protocol.MethodServerInfo,
+		protocol.MethodAgentRun,
+		protocol.MethodAgentAbort,
+		protocol.MethodAgentConfigure,
+		protocol.MethodToolRegister,
+		protocol.MethodToolExecute,
+		protocol.MethodMCPRegister,
+		protocol.MethodGuardRegister,
+		protocol.MethodGuardExecute,
+		protocol.MethodVerifierRegister,
+		protocol.MethodVerifierExecute,
+		protocol.MethodJudgeRegister,
+		protocol.MethodJudgeEvaluate,
+		protocol.MethodLLMExecute,
+		protocol.MethodSessionHistory,
+		protocol.MethodSessionInject,
+		protocol.MethodContextSummarize,
+		protocol.MethodStreamDelta,
+		protocol.MethodStreamEnd,
+		protocol.MethodContextStatus,
+	}
+	features := map[string]bool{
+		// ADR-013 以降で利用可能
+		"remote_tools":      true,
+		"remote_guards":     true,
+		"remote_verifiers":  true,
+		"remote_judge":      true,
+		"streaming":         true,
+		"context_status":    true,
+		"session_injection": true,
+		// ADR-016 で追加された LLM 逆 RPC
+		"llm_execute": true,
+	}
+	return protocol.ServerInfoResult{
+		LibraryVersion:  protocol.LibraryVersion,
+		ProtocolVersion: protocol.Version,
+		Methods:         methods,
+		Features:        features,
+	}, nil
 }
 
 // RemoteRegistry は登録済みのリモートガード/Verifier を返す（テスト/動的差し替え確認用）。

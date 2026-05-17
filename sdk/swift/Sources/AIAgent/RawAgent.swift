@@ -19,12 +19,40 @@ enum RpcMethod {
     static let llmExecute = "llm.execute"
     static let sessionHistory = "session.history"
     static let sessionInject = "session.inject"
+    static let serverInfo = "server.info"
 
     // notifications
     static let streamDelta = "stream.delta"
     static let streamEnd = "stream.end"
     static let contextStatus = "context.status"
 }
+
+// MARK: - サーバー情報 (server.info)
+
+/// `server.info` の応答。バイナリのバージョンと対応メソッド/機能フラグ。
+///
+/// SDK は `RawAgent.start()` でこれを自動取得し、`AgentConfig.expectedLibraryVersion`
+/// が指定されていれば比較する (E3)。
+public struct ServerInfo: Sendable, Equatable {
+    public let libraryVersion: String
+    public let protocolVersion: String
+    public let methods: [String]
+    public let features: [String: Bool]
+
+    public init(libraryVersion: String, protocolVersion: String, methods: [String], features: [String: Bool]) {
+        self.libraryVersion = libraryVersion
+        self.protocolVersion = protocolVersion
+        self.methods = methods
+        self.features = features
+    }
+
+    /// 機能対応の早見ヘルパ。例: `info.supports("llm_execute")`
+    public func supports(_ feature: String) -> Bool { features[feature] ?? false }
+}
+
+/// SDK が想定している ai-agent ライブラリのバージョン。
+/// バイナリ側 `protocol.LibraryVersion` と一致するべき値。
+public let aiAgentSDKLibraryVersion = "0.2.1"
 
 // MARK: - 結果型
 
@@ -222,6 +250,23 @@ public actor RawAgent {
     public func start() async throws {
         try rpc.connectSubprocess(binaryPath, args: ["--rpc"], env: env, cwd: cwd)
         await wireHandlers()
+    }
+
+    /// バイナリの `server.info` を取得する。E3 のハンドシェイクで使う。
+    /// 旧バイナリ (server.info 未実装) では `method not found (-32601)` で
+    /// 失敗するので、呼び出し元はそれを「server.info 非対応バイナリ」と
+    /// 解釈してフォールバックする。
+    public func serverInfo() async throws -> ServerInfo {
+        let raw = try await rpc.call(RpcMethod.serverInfo, params: .object([:]))
+        return ServerInfo(
+            libraryVersion: raw["library_version"]?.stringValue ?? "",
+            protocolVersion: raw["protocol_version"]?.stringValue ?? "",
+            methods: raw["methods"]?.arrayValue?.compactMap { $0.stringValue } ?? [],
+            features: (raw["features"]?.objectValue ?? [:])
+                .reduce(into: [String: Bool]()) { acc, pair in
+                    acc[pair.key] = pair.value.boolValue ?? false
+                }
+        )
     }
 
     public func close() async {
