@@ -85,8 +85,15 @@ actor JsonRpcState {
 /// 改行区切りJSON-RPC 2.0クライアント (stdio over subprocess)。
 ///
 /// `connectSubprocess(...)` でGoバイナリ (`agent --rpc`) を起動し、stdin/stdoutで通信する。
+///
+/// ### デバッグ通信トレース (D5)
+///
+/// 環境変数 `AGENT_RPC_TRACE=1` を立てると、送信/受信した JSON メッセージを
+/// stderr に `>>` / `<<` プレフィックス付きで出力する。camelCase の Swift 値が
+/// 裏で snake_case に変換されるのを目視できる。
 public final class JsonRpcClient: @unchecked Sendable {
     private let state = JsonRpcState()
+    private let traceEnabled: Bool = ProcessInfo.processInfo.environment["AGENT_RPC_TRACE"] == "1"
     // `Process` 型は iOS には存在せず、Mac Catalyst では @available(unavailable) で
     // マークされる。共通コードとして AnyObject で保持し、操作は KVC / NSInvocation
     // 経由で行うことで、macOS / Mac Catalyst / iOS の 3 プラットフォームすべてで
@@ -316,6 +323,10 @@ public final class JsonRpcClient: @unchecked Sendable {
         )
         data.append(0x0A)  // newline
 
+        if traceEnabled, let line = String(data: data, encoding: .utf8) {
+            FileHandle.standardError.write(Data((">> " + line).utf8))
+        }
+
         writeLock.lock()
         defer { writeLock.unlock() }
         do {
@@ -360,6 +371,9 @@ public final class JsonRpcClient: @unchecked Sendable {
     }
 
     private func dispatchLine(_ data: Data) async {
+        if traceEnabled, let line = String(data: data, encoding: .utf8) {
+            FileHandle.standardError.write(Data(("<< " + line + "\n").utf8))
+        }
         let message: JSONValue
         do {
             let raw = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])

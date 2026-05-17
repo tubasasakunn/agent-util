@@ -158,6 +158,29 @@ public struct AgentConfig: Sendable {
         self.versionCheck = versionCheck
     }
 
+    /// JSON-RPC に送信される直前の `agent.configure` パラメータを
+    /// 整形済み JSON 文字列で返す (D5)。
+    ///
+    /// camelCase で書いた設定が裏でどう snake_case に変換されるか、
+    /// どのフィールドが省略されるかを目視確認できる。デバッグ専用。
+    ///
+    /// ```swift
+    /// print(config.debugDump())
+    /// ```
+    public func debugDump() -> String {
+        let coreParams = toCoreConfig().toParams()
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: coreParams.toRaw(),
+                options: [.prettyPrinted, .sortedKeys]
+            ),
+            let s = String(data: data, encoding: .utf8)
+        else {
+            return "<debugDump: serialization failed>"
+        }
+        return s
+    }
+
     func toCoreConfig() -> CoreAgentConfig {
         // llmHandler が指定されていて llm が未指定なら自動で mode: .remote
         let effectiveLLM = llm ?? (llmHandler != nil ? LLMConfig(mode: .remote) : nil)
