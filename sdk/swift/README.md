@@ -408,6 +408,58 @@ public enum ToolReturn: Sendable {
 }
 ```
 
+#### ToolParameters DSL (D4)
+
+JSON Schema を手書きしないで宣言的に組み立てられる軽量 DSL:
+
+```swift
+let fetch = Tool(
+    name: "fetch",
+    description: "Fetch a URL via HTTPS",
+    parameters: ToolParameters {
+        StringParam("url").description("HTTPS URL").required()
+        IntParam("timeoutMs").description("timeout in ms").default_(.int(5000))
+        StringParam("mode")
+            .enum([.string("fast"), .string("safe")])
+            .default_(.string("safe"))
+        // ネスト構造もこのまま書ける
+        ObjectParam("headers") {
+            StringParam("authorization")
+            StringParam("accept").default_(.string("application/json"))
+        }
+        ArrayParam("tags", itemsType: "string")
+    }
+) { args in
+    return .text("fetched: \(args["url"]?.stringValue ?? "")")
+}
+```
+
+利用可能なヘルパ:
+
+| 関数            | 出力 JSON Schema                                                  |
+| --------------- | ----------------------------------------------------------------- |
+| `StringParam`   | `{"type": "string"}`                                              |
+| `IntParam`      | `{"type": "integer"}`                                             |
+| `NumberParam`   | `{"type": "number"}` (float / double)                             |
+| `BoolParam`     | `{"type": "boolean"}`                                             |
+| `ArrayParam`    | `{"type": "array", "items": {"type": "..."}}`                     |
+| `ObjectParam`   | `{"type": "object", "properties": {...}, "required": [...]}`     |
+
+チェーン可能なメソッド:
+
+- `.description("...")` — フィールド説明 (ルーターのプロンプトに含まれる)
+- `.required(_ value: Bool = true)` — `required` 配列への追加
+- `.default_(_ value: JSONValue)` — `default` フィールド
+- `.enum([JSONValue])` — `enum` フィールド (列挙値制限)
+
+`.default_` の引数名はキーワード衝突回避のためアンダースコア付き。
+
+`ToolParameters` ブロックの結果は `JSONValue` (`type: "object"`) なので
+そのまま `Tool(parameters:)` に渡せる。手書きの `JSONValue` も併用可能。
+
+Swift Macros (`@AgentTool` で関数シグネチャから自動生成) は将来の拡張として
+別途検討する。
+
 ### AgentConfig で「定義」と「有効化」を 1 つに (B1〜B4)
 
 旧 API は `Agent.start()` の中で `configure` が呼ばれていたため、
