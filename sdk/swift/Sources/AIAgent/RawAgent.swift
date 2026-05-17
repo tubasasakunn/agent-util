@@ -247,6 +247,24 @@ actor RunObserver {
 /// ChatCompletion 呼び出しがこのハンドラ経由になる。
 public typealias LLMHandler = @Sendable (_ request: JSONValue) async throws -> JSONValue
 
+/// `llm.execute` のストリーミング版ハンドラ (E1)。
+///
+/// `onDelta` クロージャを呼ぶたびに、SDK の `streamCallback` に即座に転送される
+/// (Agent.input の `onDelta:` または `agent.stream(...)` に届く)。最終 ChatResponse
+/// は通常通り return で返す。
+///
+/// 注意:
+/// - **Go コアへの「途中 chunk」の伝達は本リリースではまだサポートしない**
+///   (Go 側で llm.execute レスポンスを待っている間、stream.delta 通知は使えない)。
+/// - したがって `LLMStreamingHandler` は「Anthropic / OpenAI のストリーミング API を
+///   叩いて UI に逐次表示したい」ユースケースのための **Swift SDK ローカル機能**。
+/// - 完全な双方向ストリーミング (Go コア側でも chunk として届く) は将来のリリースで
+///   ADR-016 を拡張して対応予定。
+public typealias LLMStreamingHandler = @Sendable (
+    _ request: JSONValue,
+    _ onDelta: @Sendable (String) async -> Void
+) async throws -> JSONValue
+
 // MARK: - RawAgent
 
 /// 低レベルJSON-RPCクライアント。プロトコルに忠実な薄いラッパー。
@@ -268,6 +286,7 @@ public actor RawAgent {
     private var statusEventCallback: StatusEventCallback?
     private var phaseCallback: PhaseCallback?
     private var llmHandler: LLMHandler?
+    private var llmStreamingHandler: LLMStreamingHandler?
     private let observer = RunObserver()
 
     public init(
@@ -425,6 +444,20 @@ public actor RawAgent {
     /// `choices[0].message.tool_calls` を含む) を返す必要がある。
     public func setLLMHandler(_ handler: LLMHandler?) {
         self.llmHandler = handler
+        // streaming handler とは排他: 通常 handler を設定すると streaming はクリア
+        self.llmStreamingHandler = nil
+    }
+
+    /// `llm.execute` のストリーミング版ハンドラを登録 (`nil` でクリア)。E1。
+    ///
+    /// 設定すると `setLLMHandler` で登録した通常ハンドラより優先される。
+    /// `onDelta` クロージャを呼ぶと、SDK の `streamCallback`
+    /// (`Agent.input(onDelta:)` / `agent.stream(...)`) に即座に転送される。
+    public func setLLMStreamingHandler(_ handler: LLMStreamingHandler?) {
+        self.llmStreamingHandler = handler
+        if handler != nil {
+            self.llmHandler = nil
+        }
     }
 
     public func registerJudge(name: String, handler: @escaping JudgeHandler) async throws {
@@ -634,13 +667,33 @@ public actor RawAgent {
     }
 
     private func handleLLMExecute(_ params: JSONValue) async throws -> JSONValue {
+        let request = params["request"] ?? .object([:])
+
+        // E1: streaming handler が登録されていればそちらを優先
+        if let sHandler = llmStreamingHandler {
+            // streamCallback に即座に転送するクロージャ
+            let stream = self.streamCallback
+            let response = try await sHandler(request) { [weak self] chunk in
+                if let cb = stream {
+                    // turn は不明なので 0 を入れる (NotificationCallback の互換)
+                    await cb(chunk, 0)
+                }
+                _ = self // weak self 警告抑止
+            }
+            if case .object = response {} else {
+                throw AgentError(
+                    "llm streaming handler must return a JSON object (OpenAI-style ChatResponse)"
+                )
+            }
+            return .object(["response": response])
+        }
+
         guard let handler = llmHandler else {
             throw AgentError(
                 "received llm.execute but no handler is registered. " +
-                "Call setLLMHandler(_:) before configuring llm.mode=.remote."
+                "Call setLLMHandler(_:) or setLLMStreamingHandler(_:) before configuring llm.mode=.remote."
             )
         }
-        let request = params["request"] ?? .object([:])
         let response = try await handler(request)
         if case .object = response {} else {
             throw AgentError(

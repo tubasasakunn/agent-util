@@ -76,6 +76,11 @@ public struct AgentConfig: Sendable {
     /// ollama / mock 等) への変換ポイント。
     public var llmHandler: LLMHandler?
 
+    /// `llm.execute` のストリーミング版ハンドラ (E1)。
+    /// 設定すると llmHandler より優先される。onDelta を呼ぶたびに `Agent.input` の
+    /// `onDelta:` に転送される。両方指定された場合、streaming が優先。
+    public var llmStreamingHandler: LLMStreamingHandler?
+
     // MARK: - カスタムハンドラ (B1〜B4: start() 内で自動 register される)
 
     /// `Agent.start()` 内で `configure` より前に自動 register されるカスタムツール。
@@ -122,6 +127,7 @@ public struct AgentConfig: Sendable {
         judge: JudgeConfig? = nil,
         llm: LLMConfig? = nil,
         llmHandler: LLMHandler? = nil,
+        llmStreamingHandler: LLMStreamingHandler? = nil,
         customTools: [Tool]? = nil,
         customGuards: [GuardSpec]? = nil,
         customVerifiers: [Verifier]? = nil,
@@ -151,6 +157,7 @@ public struct AgentConfig: Sendable {
         self.judge = judge
         self.llm = llm
         self.llmHandler = llmHandler
+        self.llmStreamingHandler = llmStreamingHandler
         self.customTools = customTools
         self.customGuards = customGuards
         self.customVerifiers = customVerifiers
@@ -182,8 +189,10 @@ public struct AgentConfig: Sendable {
     }
 
     func toCoreConfig() -> CoreAgentConfig {
-        // llmHandler が指定されていて llm が未指定なら自動で mode: .remote
-        let effectiveLLM = llm ?? (llmHandler != nil ? LLMConfig(mode: .remote) : nil)
+        // llmHandler または llmStreamingHandler が指定されていて llm が未指定なら
+        // 自動で mode: .remote を適用する
+        let hasAnyHandler = llmHandler != nil || llmStreamingHandler != nil
+        let effectiveLLM = llm ?? (hasAnyHandler ? LLMConfig(mode: .remote) : nil)
         return CoreAgentConfig(
             maxTurns: maxTurns,
             systemPrompt: systemPrompt,
@@ -265,7 +274,10 @@ public actor Agent {
 
         // configure より前に llm.execute ハンドラを差し込む
         // (configure 直後に LLM 呼び出しが走る可能性があるため)
-        if let handler = config.llmHandler {
+        // E1: streaming は通常 handler より優先する
+        if let sh = config.llmStreamingHandler {
+            await raw.setLLMStreamingHandler(sh)
+        } else if let handler = config.llmHandler {
             await raw.setLLMHandler(handler)
         }
 

@@ -710,10 +710,43 @@ _ = try await raw.configure(CoreAgentConfig(llm: LLMConfig(mode: .remote)))
   期待する。`request["response_format"]?["type"]?.stringValue == "json_object"`
   なら **必ず有効な JSON 文字列を `content` に入れて返す** こと
 - クロージャから throw すると JSON-RPC エラーとして ChatCompletion が失敗する
-- ストリーミング (`StreamingConfig(enabled: true)`) と `mode=.remote` を併用しても
-  delta 通知は飛ばない (ハンドラ完了後に 1 回まとめて配信)
+- `LLMStreamingHandler` の `onDelta` クロージャは Swift SDK の `onDelta:` 引数
+  (Agent.input / agent.stream) に即座に転送される。ただし **Go コアには chunk が
+  届かない** — コアは `llm.execute` レスポンスを待ち、最終 ChatResponse のみを
+  認識する (Swift SDK ローカルのストリーミング)
 - 動作確認の最小例: `sdk/swift/Tests/AIAgentTests/AgentE2ETests.swift` の
   `testLLMRemoteRoutesThroughHandler`
+
+### ストリーミング版 llmHandler (E1)
+
+`LLMStreamingHandler` で「Anthropic / OpenAI のストリーミング API の chunk を
+UI に逐次表示」するパターンが書ける:
+
+```swift
+let streamingLLM: LLMStreamingHandler = { request, onDelta in
+    // Anthropic Messages API の streaming を叩く想定
+    var fullText = ""
+    for try await chunk in anthropicStream(request) {
+        let delta = chunk.delta
+        fullText += delta
+        await onDelta(delta)  // → Agent.input の onDelta: に即座に転送される
+    }
+    return makeFinalChatResponse(content: fullText)
+}
+
+let agent = Agent(config: AgentConfig(
+    binary: "./agent",
+    llmStreamingHandler: streamingLLM   // 自動で llm.mode=.remote
+))
+
+let result = try await agent.inputVerbose(
+    "長い説明をして",
+    onDelta: { chunk, _ in print(chunk, terminator: "") }
+)
+```
+
+`llmHandler` と `llmStreamingHandler` の両方を指定した場合、streaming が優先される
+(Agent.start 内で setLLMStreamingHandler が後に呼ばれる)。
 
 ### 完全ローカル化サンプル (H3): URLSession + Anthropic Messages API
 
