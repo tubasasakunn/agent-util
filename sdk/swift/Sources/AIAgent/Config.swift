@@ -117,15 +117,27 @@ public struct VerifyConfig: Sendable, Codable {
 public struct ToolScopeConfig: Sendable, Codable {
     public var maxTools: Int?
     public var includeAlways: [String]?
+    /// 同一ツールの呼び出し回数上限 (A1/A4)。
+    ///
+    /// 例: `["shell": 1]` を渡すと、`shell` を 1 回呼んだ時点で以後ルーターに
+    /// 提示されない。0 はそのツールを最初から禁止に近い動作になる。
+    /// 未指定キーは上限なし。
+    public var toolBudget: [String: Int]?
 
-    public init(maxTools: Int? = nil, includeAlways: [String]? = nil) {
+    public init(
+        maxTools: Int? = nil,
+        includeAlways: [String]? = nil,
+        toolBudget: [String: Int]? = nil
+    ) {
         self.maxTools = maxTools
         self.includeAlways = includeAlways
+        self.toolBudget = toolBudget
     }
 
     enum CodingKeys: String, CodingKey {
         case maxTools = "max_tools"
         case includeAlways = "include_always"
+        case toolBudget = "tool_budget"
     }
 }
 
@@ -181,10 +193,19 @@ public struct RouterConfig: Sendable, Codable {
 }
 
 public struct JudgeConfig: Sendable, Codable {
-    public var name: String
+    /// `judge.register` で登録した判定器名 (省略可)。
+    public var name: String?
+    /// 内蔵 Judge の仕様 (A2)。`name` が nil/空のときに使われる。
+    ///
+    /// - `"min_length:N"` — assistant 応答が N 文字以上なら done
+    /// - `"contains:KW"`  — assistant 応答に KW を含めば done
+    ///
+    /// 例: `JudgeConfig(builtin: "min_length:30")`
+    public var builtin: String?
 
-    public init(name: String = "") {
+    public init(name: String? = nil, builtin: String? = nil) {
         self.name = name
+        self.builtin = builtin
     }
 }
 

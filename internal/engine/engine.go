@@ -33,6 +33,9 @@ type Engine struct {
 	promptBuilder             *PromptBuilder
 	reminderThreshold         int
 	toolScope                 *ToolScope
+	// toolCalls は per-run の同一ツール呼び出し回数 (A1/A4 toolBudget 用)。
+	// Run() 冒頭でリセットし、ツール実行成功ごとにインクリメントする。
+	toolCalls map[string]int
 	maxStepRetries            int
 	maxConsecutiveFailures    int
 	verifiers                 *VerifierRegistry
@@ -423,6 +426,9 @@ func (e *Engine) Run(ctx context.Context, input string) (*Result, error) {
 	e.logf("[context] %d/%d tokens (%.0f%%)",
 		e.ctxManager.TokenCount(), e.ctxManager.TokenLimit(), e.ctxManager.UsageRatio()*100)
 	e.emitContextStatus()
+
+	// A1/A4: toolBudget 用にツール呼び出しカウンタを run 単位でリセット
+	e.toolCalls = make(map[string]int)
 
 	var totalUsage llm.Usage
 	var stepRetries int
@@ -820,6 +826,10 @@ func (e *Engine) executeAndRecord(ctx context.Context, t tool.Tool, rr *routerRe
 	if e.workDir != "" {
 		toolCtx = tool.ContextWithWorkDir(ctx, e.workDir)
 	}
+	// A1/A4: 同一ツール呼び出し回数をインクリメント (toolBudget 用)
+	if e.toolCalls != nil {
+		e.toolCalls[rr.Tool]++
+	}
 	result, execErr := t.Execute(toolCtx, rr.Arguments)
 
 	callID := generateCallID()
@@ -899,7 +909,8 @@ func (e *Engine) initPromptBuilder(cfg engineConfig) {
 		Dynamic: func() string {
 			var sb strings.Builder
 			if toolScope != nil {
-				sb.WriteString(reg.ScopedFormatForPrompt(*toolScope))
+				// A1/A4: toolBudget の現在呼び出し回数をエンジンから取って渡す
+				sb.WriteString(reg.ScopedFormatForPromptWithCalls(*toolScope, e.toolCalls))
 			} else {
 				sb.WriteString(reg.FormatForPrompt())
 			}

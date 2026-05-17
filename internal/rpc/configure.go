@@ -160,6 +160,13 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 		for _, n := range p.ToolScope.IncludeAlways {
 			scope.IncludeAlways[n] = true
 		}
+		// A1/A4: tool_budget を ToolScope に伝播
+		if len(p.ToolScope.ToolBudget) > 0 {
+			scope.ToolBudget = make(map[string]int, len(p.ToolScope.ToolBudget))
+			for k, v := range p.ToolScope.ToolBudget {
+				scope.ToolBudget[k] = v
+			}
+		}
 		opts = append(opts, engine.WithToolScope(scope))
 		applied = append(applied, "tool_scope")
 	}
@@ -221,13 +228,24 @@ func rebuildEngine(prev *engine.Engine, p *protocol.AgentConfigureParams, notifi
 		applied = append(applied, "router")
 	}
 
-	if p.Judge != nil && p.Judge.Name != "" {
-		j, ok := remote.LookupGoalJudge(p.Judge.Name)
-		if !ok {
-			return nil, nil, fmt.Errorf("judge.name: %q not registered (call judge.register first)", p.Judge.Name)
+	if p.Judge != nil {
+		switch {
+		case p.Judge.Name != "":
+			j, ok := remote.LookupGoalJudge(p.Judge.Name)
+			if !ok {
+				return nil, nil, fmt.Errorf("judge.name: %q not registered (call judge.register first)", p.Judge.Name)
+			}
+			opts = append(opts, engine.WithGoalJudge(j))
+			applied = append(applied, "judge")
+		case p.Judge.Builtin != "":
+			// A2: 内蔵判定器を組み立てる。例: "min_length:30"
+			j, jerr := engine.BuildBuiltinGoalJudge(p.Judge.Builtin)
+			if jerr != nil {
+				return nil, nil, fmt.Errorf("judge.builtin: %w", jerr)
+			}
+			opts = append(opts, engine.WithGoalJudge(j))
+			applied = append(applied, "judge")
 		}
-		opts = append(opts, engine.WithGoalJudge(j))
-		applied = append(applied, "judge")
 	}
 
 	// routerCompleter / goalJudge / loopType を引き継ぐ（configure で未指定の場合）

@@ -167,9 +167,17 @@ type RouterConfig struct {
 }
 
 // JudgeConfig は agent.configure でゴール判定器を有効化する設定。
-// Name は judge.register で登録した判定器名を指定する。
+//
+// 1. Name を指定すると judge.register で登録した判定器が使われる。
+// 2. Name が空で Builtin が指定されると内蔵判定器が使われる (A2)。
+// 3. 両方未指定なら判定器なし (旧挙動)。
 type JudgeConfig struct {
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
+	// Builtin は内蔵判定器の名前 (A2)。例:
+	//   "min_length:30" — assistant の応答が 30 文字以上なら done
+	//   "min_length:120" — 120 文字以上で done
+	// Name より優先度が低い。
+	Builtin string `json:"builtin,omitempty"`
 }
 
 // DelegateConfig は delegate_task サブエージェントの設定。
@@ -219,6 +227,10 @@ type VerifyConfig struct {
 type ToolScopeConfig struct {
 	MaxTools      *int     `json:"max_tools,omitempty"`
 	IncludeAlways []string `json:"include_always,omitempty"`
+	// ToolBudget は同一ツールの呼び出し回数上限 (A1/A4)。
+	// 例: {"shell": 1} なら shell は 1 回呼んだら以後選べない。
+	// 未指定のツールは上限なし。0 を入れると「最初から禁止」に近い動作になる。
+	ToolBudget map[string]int `json:"tool_budget,omitempty"`
 }
 
 // ReminderConfig はシステムリマインダーの設定。

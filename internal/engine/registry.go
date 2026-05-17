@@ -67,6 +67,10 @@ type ToolScope struct {
 	MaxTools int
 	// IncludeAlways は常に含めるツール名のセット。MaxTools 制限内で優先される。
 	IncludeAlways map[string]bool
+	// ToolBudget は同一ツールの呼び出し回数上限 (A1/A4)。
+	// 例: {"shell": 1} なら shell は 1 回呼んだら以後ルーターに提示されない。
+	// nil または 0 のキーは「上限なし」。
+	ToolBudget map[string]int
 }
 
 // FormatForPrompt はルーターのシステムプロンプトに埋め込むツール一覧テキストを生成する。
@@ -76,7 +80,32 @@ func (r *Registry) FormatForPrompt() string {
 
 // ScopedFormatForPrompt はスコープに基づいてフィルタしたツール一覧テキストを生成する。
 func (r *Registry) ScopedFormatForPrompt(scope ToolScope) string {
+	return r.ScopedFormatForPromptWithCalls(scope, nil)
+}
+
+// ScopedFormatForPromptWithCalls は ScopedFormatForPrompt に加えて、現在までの
+// ツール呼び出し回数 (currentCalls) を考慮して toolBudget 超過のツールを除外する (A1/A4)。
+// currentCalls が nil または scope.ToolBudget が nil なら従来通り。
+func (r *Registry) ScopedFormatForPromptWithCalls(
+	scope ToolScope,
+	currentCalls map[string]int,
+) string {
 	defs := r.Definitions()
+
+	// A1/A4: toolBudget 超過のツールを除外
+	if len(scope.ToolBudget) > 0 && currentCalls != nil {
+		filtered := defs[:0]
+		for _, d := range defs {
+			if limit, ok := scope.ToolBudget[d.Name]; ok && limit > 0 {
+				if currentCalls[d.Name] >= limit {
+					continue // 予算オーバー: ルーターには見せない
+				}
+			}
+			filtered = append(filtered, d)
+		}
+		defs = filtered
+	}
+
 	if scope.MaxTools <= 0 || scope.MaxTools >= len(defs) {
 		return r.formatDefs(defs)
 	}
